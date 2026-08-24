@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -233,6 +234,14 @@ def init_db():
     for col in ("title_alt", "translator", "category", "edition"):
         if col not in have:
             conn.execute(f"ALTER TABLE titles ADD COLUMN {col} TEXT")
+    # code = รหัสบนสติกเกอร์ที่ร้านติดหลังเล่ม (บาร์โค้ดของร้านเอง ไม่ใช่ ISBN)
+    # ISBN บอกได้แค่ว่า "เป็นหนังสือเล่มไหน" แต่ code บอกว่า "เป็นเล่มจริงใบไหนของร้าน"
+    # จึงย้อนได้ว่าเราขายไปเท่าไหร่ เมื่อไหร่ ตอนลูกค้าเอามาขายคืน
+    if "code" not in {r["name"] for r in conn.execute("PRAGMA table_info(copies)")}:
+        conn.execute("ALTER TABLE copies ADD COLUMN code TEXT")
+    conn.execute("UPDATE copies SET code = 'BK-' || substr('000000' || id, -6)"
+                 " WHERE IFNULL(code,'') = ''")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_copies_code ON copies(code)")
     conn.commit()
     if fresh:
         for isbn, title, author, pub, year, syn, cover, copies in SEED:
@@ -839,6 +848,18 @@ BACKOFFICE_WORDS = ("ชั้นไหน", "ชั้นวาง", "อยู
                     "กำไร", "ทุนเท่าไหร่", "ซื้อมาเท่าไหร่", "สต็อกเหลือ", "รหัสในระบบ")
 BACKOFFICE_REPLY = "เรื่องนี้เดี๋ยวพนักงานหน้าร้านช่วยดูให้ได้เลยครับ"
 
+# คำถามเรื่องรับซื้อคืน — ตอบด้วยข้อความสำเร็จ เพราะเป็นเรื่องเงินและเงื่อนไขของร้าน
+# ปล่อยให้โมเดลเรียบเรียงเองเสี่ยงมันคิดเปอร์เซ็นต์ขึ้นมาเอง แล้วลูกค้าถือคำพูดนั้นมาที่ร้าน
+BUYBACK_WORDS = ("รับซื้อ", "ซื้อคืน", "ขายคืน", "เอามาขาย", "ขายต่อให้ร้าน",
+                 "รับคืน", "buy back", "buyback", "เอาหนังสือมาขาย")
+BUYBACK_REPLY = (
+    "รับซื้อคืนครับ ถ้าเป็นเล่มที่ซื้อจากร้านเราและยังมีสติกเกอร์ของร้านติดอยู่ "
+    "เอามาให้พนักงานสแกนได้เลย ระบบจะคิดราคาให้ทันที ไม่ต้องรอประเมินนานครับ\n"
+    "ราคารับซื้อคิดจากราคาที่ร้านจะตั้งขายเล่มนั้นใหม่ ซึ่งขึ้นกับสภาพหนังสือตอนที่เอามาขาย "
+    "สภาพดีมากได้ 45% สภาพดี 40% พออ่านได้ 30% ของราคาตั้งขายใหม่ครับ\n"
+    "ถ้าเป็นหนังสือจากที่อื่นก็รับซื้อครับ แต่ต้องให้พนักงานดูสภาพและประเมินราคาหน้าร้าน"
+)
+
 # คำที่บอกว่ากำลังถาม "คุณสมบัติของเล่มที่คุยกันอยู่" ไม่ใช่เริ่มหาเล่มใหม่
 FOLLOWUP_WORDS = ("สภาพ", "ปีไหน", "ปีพิมพ์", "พิมพ์ปี", "พิมพ์ครั้ง", "ราคา", "กี่บาท",
                   "ชั้นไหน", "ชั้นวาง", "อยู่ไหน", "รีวิว", "เรื่องย่อ", "ย่อ",
@@ -904,8 +925,18 @@ def api_chat(history, mode="staff"):
     if not user_msg:
         return {"reply": "พิมพ์คำถามได้เลยครับ", "books": []}
 
+    # ลำดับสำคัญ: เช็คเรื่องหลังร้านก่อน ไม่งั้นพนักงานถาม "ต้นทุนรับซื้อเท่าไหร่"
+    # จะไปโดนดักด้วยคำว่า "รับซื้อ" แล้วได้นโยบายกลับมาแทนตัวเลขต้นทุนจริงของเล่มนั้น
     if mode == "customer" and any(w in user_msg for w in BACKOFFICE_WORDS):
         return {"reply": BACKOFFICE_REPLY, "books": [], "links": []}
+
+    asking_cost = any(w in user_msg for w in ("ต้นทุน", "กำไร", "ทุนเท่าไหร่",
+                                              "ซื้อมาเท่าไหร่"))
+    if any(w in user_msg.lower() for w in BUYBACK_WORDS) and not asking_cost:
+        return {"reply": BUYBACK_REPLY if mode == "customer" else
+                "รับซื้อคืนครับ สแกนสติกเกอร์ที่แท็บ 'รับซื้อ' ระบบคิดราคาให้จาก"
+                "ราคาที่ขายไปจริง (A 45% / B 40% / C 30%) ถ้าไม่มีสติกเกอร์ให้กรอกราคาปกแทน",
+                "books": [], "links": []}
 
     # คำถามต่อเนื่อง: ถามคุณสมบัติของเล่มเดิมโดยไม่เอ่ยชื่อ ("สภาพเป็นยังไง", "พิมพ์ปีไหน")
     # ต้องยึดเล่มที่คุยกันอยู่ ห้ามค้นใหม่ เพราะตัวสกัดคำค้นชอบแต่งชื่อหนังสือขึ้นมา
@@ -1029,15 +1060,20 @@ def api_stockin(p):
     grade = p.get("grade", "B")
     price = float(p.get("price") or 0)
     cost = float(p.get("cost") or 0)
-    conn.execute(
+    cur = conn.execute(
         "INSERT INTO copies(title_id,grade,price,cost,shelf,status,added_at,note)"
         " VALUES(?,?,?,?,?,'in_stock',?,?)",
         (tid, grade, price, cost, p.get("shelf", "").strip().upper(), now(), p.get("note")),
     )
+    # รหัสสติกเกอร์ผูกกับ id ของเล่ม จึงไม่ซ้ำกันแน่นอน ไม่ต้องสุ่มแล้วเช็คชน
+    code = copy_code(cur.lastrowid)
+    conn.execute("UPDATE copies SET code=? WHERE id=?", (code, cur.lastrowid))
     conn.commit()
     row = conn.execute("SELECT * FROM titles WHERE id=?", (tid,)).fetchone()
     conn.close()
-    return {"ok": True, "title": dict(row)}
+    return {"ok": True, "title": dict(row), "code": code,
+            "copy": {"grade": grade, "price": price,
+                     "shelf": p.get("shelf", "").strip().upper()}}
 
 
 def api_sell(copy_id):
@@ -1089,16 +1125,136 @@ def api_stats():
     }
 
 
+def copy_code(copy_id):
+    return "BK-%06d" % int(copy_id)
+
+
+def make_barcode_svg(code):
+    """สร้างบาร์โค้ด Code128 เป็น SVG ด้วย zint
+
+    ใช้ zint (โปรแกรมมาตรฐาน) ไม่เขียนตารางเข้ารหัสเอง เพราะถ้าเข้ารหัสผิดแม้บิตเดียว
+    สติกเกอร์จะสแกนไม่ติดทั้งร้าน — ทดสอบแล้วว่า ZXing ตัวเดียวกับที่มือถือใช้อ่านกลับได้ถูก
+    """
+    r = subprocess.run(["zint", "-b", "20", "-d", code, "--scale=2", "--height=32",
+                        "--notext", "--direct", "--filetype=svg"],
+                       capture_output=True, timeout=15)
+    if r.returncode != 0 or not r.stdout:
+        raise RuntimeError((r.stderr or b"").decode()[:200] or "zint ไม่ตอบ")
+    return r.stdout
+
+
+# ราคารับซื้อคืน คิดตามสภาพ "ตอนที่ลูกค้าเอามาขาย" ไม่ใช่สภาพตอนที่เราขายไป
+BUYBACK_RATE_BY_GRADE = {"A": 0.45, "B": 0.40, "C": 0.30}
+
+
+def api_copy_lookup(code):
+    """ค้นเล่มจริงจากรหัสสติกเกอร์ของร้าน — ใช้ตอนลูกค้าเอาหนังสือกลับมาขาย"""
+    code = (code or "").strip().upper()
+    if not code:
+        return {"found": False, "error": "ไม่มีรหัส"}
+    conn = db()
+    row = conn.execute(
+        "SELECT c.*, t.title, t.author, t.cover_price, t.isbn, t.category"
+        " FROM copies c JOIN titles t ON t.id = c.title_id WHERE c.code = ?",
+        (code,)).fetchone()
+    if not row:
+        conn.close()
+        return {"found": False, "code": code}
+    sale = conn.execute("SELECT price, sold_at FROM sales WHERE copy_id=?"
+                        " ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+    conn.close()
+    return {
+        "found": True, "code": code, "copy_id": row["id"],
+        "title": row["title"], "author": row["author"],
+        "cover_price": row["cover_price"], "category": row["category"],
+        "sold_grade": row["grade"], "status": row["status"],
+        "sold_price": sale["price"] if sale else row["price"],
+        "sold_at": sale["sold_at"] if sale else None,
+        "was_sold": bool(sale),
+    }
+
+
 def api_buyback_quote(p):
-    """เสนอราคารับซื้อ — คิดจากราคาปกและเกรดสภาพ"""
-    cover = float(p.get("cover_price") or 0)
+    """เสนอราคารับซื้อ
+
+    2 ทาง:
+    - มีรหัสสติกเกอร์ = เล่มที่ร้านขายไปเอง -> คิดจาก "ราคาที่ขายไปจริง" แม่นที่สุด
+    - ไม่มีสติกเกอร์  = เล่มจากที่อื่น      -> คิดจากราคาปก + สภาพ (เหมือนเดิม)
+    """
     grade = p.get("grade", "B")
+    rate = BUYBACK_RATE_BY_GRADE.get(grade, BUYBACK_RATE)
+    code = (p.get("code") or "").strip().upper()
+
+    if code:
+        found = api_copy_lookup(code)
+        if not found.get("found"):
+            return {"error": f"ไม่พบรหัส {code} ในระบบ — อาจไม่ใช่สติกเกอร์ของร้านเรา"}
+        sold = float(found.get("sold_price") or 0)
+        # ฐานคิดราคา = ราคาที่ "ตั้งขายใหม่ได้ตามสภาพตอนนี้" ไม่ใช่ราคาที่ขายไปตอนนั้น
+        # เพราะถ้าเล่มกลับมาสภาพแย่ลง (ขายไปตอน A กลับมาเป็น C) การคิดจากราคาเดิม
+        # จะจ่ายแพงเกินจนกำไรเหลือไม่คุ้มค่าดำเนินการ (วัดแล้ว: รับ 35 ตั้งขาย 45 เหลือ 10)
+        resell = suggest_price(found.get("cover_price") or 0, grade) or sold
+        offer = round(resell * rate / 5) * 5
+        if sold:                        # ไม่รับซื้อแพงกว่าที่เราขายไป
+            offer = min(offer, round(sold * rate / 5) * 5)
+        return {"source": "sticker", "code": code,
+                "title": found["title"], "author": found["author"],
+                "cover_price": found.get("cover_price"),
+                "sold_price": sold, "sold_at": found.get("sold_at"),
+                "sold_grade": found.get("sold_grade"),
+                "grade_label": GRADE_LABEL.get(grade, grade),
+                "rate_pct": round(rate * 100),
+                "offer": offer, "sell_price": resell, "margin": resell - offer}
+
+    cover = float(p.get("cover_price") or 0)
     sell = suggest_price(cover, grade)
     if not sell:
-        return {"error": "ต้องมีราคาปกก่อนจึงคำนวณราคารับซื้อได้"}
-    offer = round(sell * BUYBACK_RATE / 5) * 5
-    return {"sell_price": sell, "offer": offer, "margin": sell - offer,
+        return {"error": "ต้องมีราคาปก หรือสแกนสติกเกอร์ของร้าน จึงคำนวณราคารับซื้อได้"}
+    offer = round(sell * rate / 5) * 5
+    return {"source": "cover", "sell_price": sell, "offer": offer,
+            "margin": sell - offer, "rate_pct": round(rate * 100),
             "grade_label": GRADE_LABEL.get(grade, grade)}
+
+
+def api_buyback_accept(p):
+    """ตกลงรับซื้อ — เพิ่มเล่มกลับเข้าสต็อกพร้อมรหัสสติกเกอร์ใบใหม่
+
+    ออกรหัสใหม่ ไม่ใช้รหัสเดิมซ้ำ เพราะเล่มเดิมมีประวัติการขายผูกอยู่แล้ว
+    ถ้าใช้รหัสซ้ำ ประวัติจะปนกันจนสืบย้อนไม่ได้ว่าขายรอบไหน
+    """
+    title = (p.get("title") or "").strip()
+    if not title:
+        return {"error": "ต้องมีชื่อหนังสือ"}
+    grade = p.get("grade", "B")
+    offer = float(p.get("offer") or 0)
+    price = float(p.get("sell_price") or 0)
+    if not price:
+        return {"error": "ต้องมีราคาตั้งขาย"}
+    shelf = (p.get("shelf") or "").strip().upper()
+    conn = db()
+    tid = p.get("title_id")
+    if not tid:
+        row = conn.execute("SELECT id FROM titles WHERE title=? LIMIT 1", (title,)).fetchone()
+        if row:
+            tid = row["id"]
+        else:
+            tid = conn.execute(
+                "INSERT INTO titles(isbn,title,author,publisher,category,year,"
+                "synopsis,cover_price,source) VALUES(?,?,?,?,?,?,?,?,'buyback')",
+                (p.get("isbn") or None, title, p.get("author"), p.get("publisher"),
+                 p.get("category"), p.get("year"), p.get("synopsis"),
+                 float(p.get("cover_price") or 0) or None)).lastrowid
+    cur = conn.execute(
+        "INSERT INTO copies(title_id,grade,price,cost,shelf,status,added_at,note)"
+        " VALUES(?,?,?,?,?,'in_stock',?,?)",
+        (tid, grade, price, offer, shelf, now(),
+         f"รับซื้อคืน{' จากสติกเกอร์ ' + p['from_code'] if p.get('from_code') else ''}"))
+    code = copy_code(cur.lastrowid)
+    conn.execute("UPDATE copies SET code=? WHERE id=?", (code, cur.lastrowid))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "code": code, "title": title, "grade": grade,
+            "paid": offer, "sell_price": price, "shelf": shelf}
 
 
 # ---------------------------------------------------------------- http
@@ -1194,6 +1350,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_stats())
         if path == "/api/categories":
             return self._send(200, {"categories": CATEGORIES})
+        if path == "/api/copy-lookup":
+            return self._send(200, api_copy_lookup(query.get("code")))
+        if path == "/api/barcode":
+            code = (query.get("code") or "").strip().upper()
+            if not re.fullmatch(r"[A-Z0-9\-]{1,24}", code):
+                return self._send(400, {"error": "รหัสไม่ถูกต้อง"})
+            try:
+                return self._send(200, make_barcode_svg(code), "image/svg+xml")
+            except Exception as exc:
+                return self._send(500, {"error": f"สร้างบาร์โค้ดไม่ได้: {exc}"})
         if path == "/api/grades":
             return self._send(200, {"factors": GRADE_FACTOR, "labels": GRADE_LABEL,
                                     "buyback_rate": BUYBACK_RATE})
@@ -1263,6 +1429,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_chat(history, mode))
         if path == "/api/buyback-quote":
             return self._send(200, api_buyback_quote(p))
+        if path == "/api/buyback-accept":
+            return self._send(200, api_buyback_accept(p))
         if path == "/api/reset":
             DB.unlink(missing_ok=True)
             init_db()

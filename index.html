@@ -219,12 +219,13 @@ td.num{text-align:right}
 .scroll-x{overflow-x:auto}
 
 /* barcode scanner */
-#scanner{
+#scanner,#bscanner{
   margin-top:10px;position:relative;
   border:1px solid var(--line);border-radius:var(--r-md);
   overflow:hidden;background:#000;
 }
-#scan-video{width:100%;max-height:280px;object-fit:cover;display:block}
+#scan-video,#bscan-video{width:100%;max-height:280px;object-fit:cover;display:block}
+#btn-bscan-stop{position:absolute;right:10px;bottom:10px;z-index:2}
 .scan-frame{
   position:absolute;left:12%;right:12%;top:50%;transform:translateY(-50%);
   height:26%;border:2px solid var(--accent);border-radius:8px;
@@ -257,6 +258,39 @@ td.num{text-align:right}
 .shot-slot.filled .slot-hint{display:none}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+/* สติกเกอร์ติดหลังเล่ม — ขนาดจริงประมาณ 50x30 มม. */
+#sticker-box{
+  position:fixed;inset:0;z-index:60;display:grid;place-items:center;
+  background:rgba(3,6,14,.72);padding:18px;
+}
+#sticker-box[hidden]{display:none}
+.sticker-panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:16px;max-width:340px;width:100%;box-shadow:0 24px 60px -20px rgba(0,0,0,.85);
+}
+.sticker-panel h3{margin:0 0 4px;font-size:.95rem}
+.sticker-panel .hint{margin:0 0 12px}
+#sticker-wrap{display:flex;flex-direction:column;align-items:center}
+.sticker{
+  width:189px;                     /* 50mm ที่ 96dpi */
+  background:#fff;color:#000;border:1px solid #999;border-radius:4px;
+  padding:6px 7px;font-family:'Kanit',sans-serif;
+}
+.st-title{font-size:9px;font-weight:600;line-height:1.25;height:23px;overflow:hidden}
+.st-row{display:flex;justify-content:space-between;align-items:baseline;margin:2px 0}
+.st-grade{font-size:9px;font-weight:700;border:1px solid #000;border-radius:3px;padding:0 4px}
+.st-price{font-size:14px;font-weight:700}
+.st-bc{display:block;width:100%;height:30px;margin:2px 0 0}
+.st-code{font-size:8px;text-align:center;letter-spacing:.06em}
+.st-shelf{font-size:8px;text-align:right;color:#444}
+#sticker-print-host{display:none}
+@media print{
+  /* พิมพ์เฉพาะสติกเกอร์ ซ่อนหน้าเว็บทั้งหมด */
+  body > *{display:none !important}
+  body{background:#fff}
+  #sticker-print-host{display:block !important}
+  #sticker-print-host .sticker{border:1px dashed #bbb;margin:0 auto}
+}
 .mode-pick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}
 .mode{cursor:pointer}
 .mode input{position:absolute;opacity:0;pointer-events:none}
@@ -563,6 +597,26 @@ td.num{text-align:right}
   <section id="tab-buyback" hidden>
     <h2>รับซื้อหนังสือ (Buy back)</h2>
     <p class="hint">ลูกค้าเอาหนังสือมาขาย — ระบบคำนวณราคารับซื้อและกำไรที่จะได้ให้ดูก่อนตกลง</p>
+
+    <div class="aibox">
+      <p><strong>1. เล่มที่ซื้อจากร้านเรา?</strong> สแกนสติกเกอร์หลังเล่ม
+        ระบบจะรู้เลยว่าเราขายไปเท่าไหร่ เมื่อไหร่ แล้วคิดราคารับซื้อให้ทันที</p>
+      <button class="btn sm" id="btn-bscan" style="margin-top:8px;width:100%">
+        📷 สแกนสติกเกอร์ร้าน</button>
+      <div class="row" style="margin-top:8px">
+        <input id="b-code" class="mono" placeholder="หรือพิมพ์รหัส เช่น BK-000001"
+               autocapitalize="characters" autocomplete="off">
+        <button class="btn ghost sm" style="flex:none" id="btn-bcode">ค้นหา</button>
+      </div>
+      <div id="bscanner" hidden class="scanner">
+        <video id="bscan-video" playsinline muted></video>
+        <button class="btn ghost sm" id="btn-bscan-stop">ปิดกล้อง</button>
+      </div>
+      <div id="b-lookup-msg" class="hint" style="margin:8px 0 0"></div>
+    </div>
+
+    <p class="hint"><strong>2. ไม่มีสติกเกอร์?</strong> กรอกข้อมูลเองด้านล่าง
+      ระบบจะคิดจากราคาปกกับสภาพ</p>
     <div class="field"><label for="b-title">ชื่อหนังสือ</label><input id="b-title"></div>
     <div class="row">
       <div class="field"><label for="b-author">ผู้เขียน</label><input id="b-author"></div>
@@ -928,49 +982,64 @@ function loadZxing() {
   return zxingLoading;
 }
 
-async function startScan() {
-  const msg = $('lookup-msg');
-  $('btn-scan').disabled = true;
+let scanBoxId = null;   // กล่องกล้องที่เปิดอยู่ตอนนี้ (มี 2 ที่: ลงสต็อก / รับซื้อ)
+
+// ใช้ร่วมกันทั้ง 2 แท็บ — ต่างกันแค่รูปแบบรหัสที่ยอมรับกับสิ่งที่ทำเมื่ออ่านได้
+async function startScan({boxId, videoId, btnId, msgId, accept, onCode, hint}) {
+  const msg = $(msgId);
+  $(btnId).disabled = true;
   msg.innerHTML = '<span class="spin"></span> กำลังเปิดกล้อง...';
   try {
     await loadZxing();
     const { BrowserMultiFormatReader } = window.ZXingBrowser;
     zxingReader = new BrowserMultiFormatReader();
-    $('scanner').hidden = false;
+    $(boxId).hidden = false;
+    scanBoxId = boxId;
     zxingControls = await zxingReader.decodeFromConstraints(
       {video: {facingMode: {ideal: 'environment'}}},
-      $('scan-video'),
-      (result, err) => {
+      $(videoId),
+      (result) => {
         if (!result) return;
         const code = String(result.getText() || '').trim();
-        if (!/^\d{8,14}$/.test(code)) return;  // รับเฉพาะบาร์โค้ดตัวเลข (EAN/ISBN)
+        if (!accept.test(code)) return;
         stopScan();
-        $('isbn').value = code;
-        msg.innerHTML = '<span class="badge high">สแกนได้</span> <span class="mono">' + esc(code) + '</span> — กำลังค้นหา...';
         if (navigator.vibrate) navigator.vibrate(60);
-        $('btn-lookup').click();
+        onCode(code);
       }
     );
-    msg.innerHTML = 'เล็งบาร์โค้ดให้อยู่ในกรอบ ระบบจะอ่านให้เอง';
+    msg.textContent = hint;
   } catch (e) {
-    $('scanner').hidden = true;
+    $(boxId).hidden = true;
     const why = (e && e.name === 'NotAllowedError')
       ? 'ไม่ได้รับอนุญาตให้ใช้กล้อง — กดอนุญาตในเบราว์เซอร์แล้วลองอีกครั้ง'
       : (e && e.message) || 'เปิดกล้องไม่ได้';
-    msg.innerHTML = '<span class="badge low">เปิดกล้องไม่ได้</span> ' + esc(why) + ' — พิมพ์ ISBN เองได้';
+    msg.innerHTML = '<span class="badge low">เปิดกล้องไม่ได้</span> ' + esc(why) + ' — พิมพ์รหัสเองได้';
   }
-  $('btn-scan').disabled = false;
+  $(btnId).disabled = false;
 }
 
 function stopScan() {
   try { if (zxingControls) zxingControls.stop(); } catch (e) {}
   try { if (zxingReader) zxingReader.reset(); } catch (e) {}
   zxingControls = null;
-  $('scanner').hidden = true;
+  if (scanBoxId && $(scanBoxId)) $(scanBoxId).hidden = true;
+  scanBoxId = null;
 }
 
+const SCAN_STOCKIN = {
+  boxId: 'scanner', videoId: 'scan-video', btnId: 'btn-scan', msgId: 'lookup-msg',
+  accept: /^\d{8,14}$/,          // ISBN/EAN บนปกหนังสือ = ตัวเลขล้วน
+  hint: 'เล็งบาร์โค้ดให้อยู่ในกรอบ ระบบจะอ่านให้เอง',
+  onCode: code => {
+    $('isbn').value = code;
+    $('lookup-msg').innerHTML = '<span class="badge high">สแกนได้</span> <span class="mono">'
+      + esc(code) + '</span> — กำลังค้นหา...';
+    $('btn-lookup').click();
+  }
+};
+
 $('btn-scan').addEventListener('click', () => {
-  if ($('scanner').hidden) startScan(); else stopScan();
+  if ($('scanner').hidden) startScan(SCAN_STOCKIN); else stopScan();
 });
 $('btn-scan-stop').addEventListener('click', stopScan);
 
@@ -1200,7 +1269,8 @@ $('btn-save').addEventListener('click', async () => {
   $('btn-save').disabled = false;
   if (r.error) { toast(r.error, 'error'); return; }
   try { localStorage.setItem('lastShelf', payload.shelf); } catch (e) {}
-  toast(`บันทึก "${payload.title}" เกรด ${grade} ${baht(payload.price)} ชั้น ${payload.shelf} — ดูได้ในแท็บสต็อก`);
+  toast(`บันทึก "${payload.title}" เกรด ${grade} ${baht(payload.price)} ชั้น ${payload.shelf}`);
+  if (r.code) showSticker(r.code, payload.title, payload.price, payload.shelf, grade);
   // เด้งไปแท็บสต็อกพร้อมค้นชื่อที่เพิ่งบันทึก ให้เห็นทันทีว่าเข้าระบบแล้วจริง
   $('stock-q').value = payload.title;
   document.querySelector('nav button[data-tab="stock"]').click();
@@ -1214,36 +1284,116 @@ $('btn-save').addEventListener('click', async () => {
 /* ---------- รับซื้อ ---------- */
 let bGrade = 'B';
 bindGrades('b-grades', g => { bGrade = g; });
+/* ---------- สติกเกอร์ติดหลังเล่ม ---------- */
+// บาร์โค้ดสร้างที่เซิร์ฟเวอร์ด้วย zint (โปรแกรมมาตรฐาน) แล้วส่งมาเป็น SVG
+// ไม่เขียนตารางเข้ารหัสเอง เพราะพลาดบิตเดียวสติกเกอร์จะสแกนไม่ติดทั้งร้าน
+function showSticker(code, title, price, shelf, grade) {
+  $('sticker-wrap').innerHTML = `
+    <div class="sticker" id="sticker">
+      <div class="st-title">${esc(title || '')}</div>
+      <div class="st-row"><span class="st-grade">${esc(grade || '')}</span>
+        <span class="st-price">${baht(price)}</span></div>
+      <img class="st-bc" alt="${esc(code)}" src="api/barcode?code=${encodeURIComponent(code)}">
+      <div class="st-code mono">${esc(code)}</div>
+      <div class="st-shelf mono">${esc(shelf || '')}</div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn sm" id="btn-print">🖨️ พิมพ์สติกเกอร์</button>
+      <button class="btn ghost sm" style="flex:none" id="btn-sticker-close">ปิด</button>
+    </div>`;
+  $('sticker-box').hidden = false;
+  $('sticker-box').addEventListener('click', e => {   // แตะพื้นหลังเพื่อปิด
+    if (e.target === $('sticker-box')) $('btn-sticker-close').click();
+  }, {once: true});
+  $('btn-print').addEventListener('click', () => {
+    // ย้ายสำเนาสติกเกอร์ไปไว้ใต้ body ตรงๆ เพราะ CSS พิมพ์ซ่อนลูกของ body ทุกตัว
+    // ถ้าปล่อยไว้ในหน้า มันจะถูกซ่อนไปพร้อมกับส่วนอื่น
+    $('sticker-print-host').innerHTML = $('sticker').outerHTML;
+    window.print();
+  });
+  $('btn-sticker-close').addEventListener('click', () => {
+    $('sticker-box').hidden = true;
+    $('sticker-wrap').innerHTML = '';
+  });
+}
+
+let bCode = '';   // รหัสสติกเกอร์ที่สแกนได้ ('' = เล่มจากที่อื่น คิดจากราคาปก)
+
+const SCAN_BUYBACK = {
+  boxId: 'bscanner', videoId: 'bscan-video', btnId: 'btn-bscan', msgId: 'b-lookup-msg',
+  accept: /^BK-\d{4,8}$/i,        // สติกเกอร์ของร้านเท่านั้น ไม่ใช่ ISBN บนปก
+  hint: 'เล็งสติกเกอร์หลังเล่มให้อยู่ในกรอบ',
+  onCode: code => { $('b-code').value = code.toUpperCase(); lookupCode(); }
+};
+$('btn-bscan').addEventListener('click', () => {
+  if ($('bscanner').hidden) startScan(SCAN_BUYBACK); else stopScan();
+});
+$('btn-bscan-stop').addEventListener('click', stopScan);
+$('btn-bcode').addEventListener('click', lookupCode);
+$('b-code').addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(); });
+
+async function lookupCode() {
+  const code = $('b-code').value.trim().toUpperCase();
+  const msg = $('b-lookup-msg');
+  if (!code) { toast('ใส่รหัสสติกเกอร์ก่อน', 'error'); return; }
+  msg.innerHTML = '<span class="spin"></span> กำลังค้นหา...';
+  const r = await get('copy-lookup?code=' + encodeURIComponent(code));
+  if (!r.found) {
+    bCode = '';
+    msg.innerHTML = '<span class="badge low">ไม่พบ</span> รหัส <span class="mono">'
+      + esc(code) + '</span> ไม่ใช่สติกเกอร์ของร้านเรา — กรอกข้อมูลเองด้านล่างได้';
+    return;
+  }
+  bCode = code;
+  $('b-title').value = r.title || '';
+  $('b-author').value = r.author || '';
+  $('b-cover').value = r.cover_price || '';
+  const sold = r.was_sold
+    ? `ร้านขายไป ${baht(r.sold_price)} เมื่อ ${esc((r.sold_at || '').slice(0, 10))} (ตอนนั้นสภาพ ${esc(r.sold_grade)})`
+    : `<span class="badge medium">ยังไม่เคยขาย</span> เล่มนี้ยังอยู่ในสต็อกร้าน — เช็คให้แน่ใจก่อนรับซื้อ`;
+  msg.innerHTML = `<span class="badge high">เจอ</span> <strong>${esc(r.title)}</strong><br>${sold}`
+    + '<br>เลือกสภาพ<strong>ตอนนี้</strong>ด้านล่าง แล้วกดคำนวณ';
+}
+
 $('btn-quote').addEventListener('click', async () => {
   const cover = parseFloat($('b-cover').value);
-  if (!(cover > 0)) { toast('ใส่ราคาปกก่อน', 'error'); return; }
-  const r = await post('buyback-quote', {cover_price: cover, grade: bGrade});
+  if (!bCode && !(cover > 0)) { toast('สแกนสติกเกอร์ หรือใส่ราคาปกก่อน', 'error'); return; }
+  const r = await post('buyback-quote',
+    bCode ? {code: bCode, grade: bGrade} : {cover_price: cover, grade: bGrade});
   if (r.error) { toast(r.error, 'error'); return; }
+  const via = r.source === 'sticker'
+    ? `<span class="badge high">จากสติกเกอร์ ${esc(r.code)}</span> คิดจากราคาที่ร้านขายไป ${baht(r.sold_price)}`
+    : '<span class="badge medium">ไม่มีสติกเกอร์</span> คิดจากราคาปกกับสภาพ';
   $('quote').innerHTML = `
     <div class="card" style="margin-top:14px">
       <h3>ราคาที่เสนอรับซื้อ</h3>
       <p class="meta">${esc($('b-title').value || 'ไม่ระบุชื่อ')} · สภาพ ${esc(r.grade_label)}</p>
+      <p class="hint" style="margin:6px 0 0">${via}</p>
       <div class="tiles" style="margin:10px 0 0">
         <div class="tile"><p class="k">จ่ายลูกค้า</p><p class="v">${baht(r.offer)}</p></div>
         <div class="tile"><p class="k">ตั้งขาย</p><p class="v">${baht(r.sell_price)}</p></div>
         <div class="tile"><p class="k">กำไรถ้าขายได้</p><p class="v">${baht(r.margin)}</p></div>
       </div>
       <button class="btn" id="btn-accept" style="width:100%;margin-top:12px">รับซื้อและลงสต็อก</button>
-      <p class="hint" style="margin:10px 0 0">รับซื้อที่ 40% ของราคาที่ตั้งขาย — ปรับเปอร์เซ็นต์ได้ตามนโยบายร้าน</p>
+      <p class="hint" style="margin:10px 0 0">รับซื้อที่ ${r.rate_pct}% ของราคาตั้งขายตามสภาพ
+        (ดีมาก 45% · ดี 40% · พออ่านได้ 30%) — ปรับได้ตามนโยบายร้าน</p>
     </div>`;
   $('btn-accept').addEventListener('click', async () => {
     const shelf = prompt('เก็บเล่มนี้ที่ชั้นไหน (เช่น A-01-2)');
     if (!shelf) return;
-    const res = await post('stockin', {
+    const res = await post('buyback-accept', {
       title: $('b-title').value.trim() || 'ไม่ระบุชื่อ',
-      author: $('b-author').value.trim(), cover_price: cover,
-      grade: bGrade, price: r.sell_price, cost: r.offer,
-      shelf: shelf.trim().toUpperCase(), source: 'buyback'
+      author: $('b-author').value.trim(), cover_price: cover || null,
+      grade: bGrade, sell_price: r.sell_price, offer: r.offer,
+      shelf: shelf.trim().toUpperCase(), from_code: bCode || null
     });
     if (res.error) { toast(res.error, 'error'); return; }
-    toast(`รับซื้อแล้ว จ่าย ${baht(r.offer)} · ลงสต็อกชั้น ${shelf.toUpperCase()}`);
-    $('quote').innerHTML = '';
-    ['b-title','b-author','b-cover'].forEach(i => $(i).value = '');
+    toast(`รับซื้อแล้ว จ่าย ${baht(r.offer)} · สติกเกอร์ใหม่ ${res.code}`);
+    // ต้องพิมพ์สติกเกอร์ใบใหม่ทันที เพราะรหัสเดิมผูกกับประวัติการขายรอบก่อนไปแล้ว
+    showSticker(res.code, res.title, res.sell_price, res.shelf, res.grade);
+    bCode = '';
+    ['b-title','b-author','b-cover','b-code'].forEach(i => $(i).value = '');
+    $('b-lookup-msg').textContent = '';
   });
 });
 
@@ -1289,5 +1439,13 @@ async function loadStats() {
 }
 
 </script>
+<div id="sticker-box" hidden>
+  <div class="sticker-panel">
+    <h3>สติกเกอร์ติดหลังเล่ม</h3>
+    <p class="hint">ติดหลังเล่มก่อนขึ้นชั้น — คราวหน้าลูกค้าเอามาขายคืน สแกนใบนี้แล้วระบบรู้ราคาทันที</p>
+    <div id="sticker-wrap"></div>
+  </div>
+</div>
+<div id="sticker-print-host"></div>
 </body>
 </html>
