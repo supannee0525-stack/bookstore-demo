@@ -647,6 +647,26 @@ document.addEventListener('scroll', () => {
   headerEl.classList.toggle('scrolled', window.scrollY > 4);
 }, {passive: true});
 
+/* ---------- สิทธิ์ผู้ใช้ ---------- */
+// บัญชีลูกค้าเห็นแค่แท็บแชท ส่วนการกันจริงอยู่ที่เซิร์ฟเวอร์ (ตอบ 403 ทุก endpoint หลังบ้าน)
+// ตรงนี้แค่เก็บของที่ใช้ไม่ได้ให้พ้นตา ไม่ใช่ระบบความปลอดภัย
+get('me').then(me => {
+  if (me.role !== 'customer') return;
+  document.querySelectorAll('nav button').forEach(b => {
+    if (b.dataset.tab !== 'search') b.remove();
+  });
+  ['stock', 'stockin', 'buyback', 'stats'].forEach(t => {
+    const el = $('tab-' + t);
+    if (el) el.remove();
+  });
+  const mp = document.querySelector('.mode-pick');
+  if (mp) mp.remove();                      // ไม่ให้สลับไปโหมดพนักงาน
+  const h = document.querySelector('#tab-search h2');
+  if (h) h.textContent = 'ถามหาหนังสือกับร้านได้เลย';
+  const hint = document.querySelector('#tab-search .hint');
+  if (hint) hint.textContent = 'ถามได้ทั้งชื่อเรื่อง แนวหนังสือ สภาพ ปีพิมพ์ หรือขอเรื่องย่อ';
+}).catch(() => {});
+
 /* ---------- tabs ---------- */
 document.querySelectorAll('nav button').forEach(b => {
   b.addEventListener('click', () => {

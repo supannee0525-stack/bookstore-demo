@@ -59,35 +59,54 @@ def _secret():
     return _cfg("SESSION_SECRET", "dev-secret-change-me").encode()
 
 
-def make_token(user):
+def make_token(user, role="staff"):
     exp = str(int(time.time()) + SESSION_DAYS * 86400)
-    body = f"{user}|{exp}"
+    body = f"{user}|{role}|{exp}"
     sig = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()[:32]
     return base64.urlsafe_b64encode(f"{body}|{sig}".encode()).decode()
 
 
 def check_token(tok):
-    """คืนชื่อผู้ใช้ถ้า token ถูกต้องและยังไม่หมดอายุ ไม่งั้นคืน None"""
+    """คืน (ชื่อผู้ใช้, สิทธิ์) ถ้า token ถูกต้องและยังไม่หมดอายุ ไม่งั้นคืน (None, None)
+
+    สิทธิ์อยู่ใน token ที่เซ็นด้วย HMAC จึงแก้ฝั่งเบราว์เซอร์ให้ตัวเองเป็น staff ไม่ได้
+    """
     try:
         raw = base64.urlsafe_b64decode(tok.encode()).decode()
-        user, exp, sig = raw.rsplit("|", 2)
-        expect = hmac.new(_secret(), f"{user}|{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+        parts = raw.rsplit("|", 3)
+        if len(parts) == 4:
+            user, role, exp, sig = parts
+            body = f"{user}|{role}|{exp}"
+        else:                       # token รูปแบบเก่า (ก่อนมีระบบสิทธิ์) = ถือเป็นพนักงาน
+            user, exp, sig = raw.rsplit("|", 2)
+            role, body = "staff", f"{user}|{exp}"
+        expect = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()[:32]
         if not hmac.compare_digest(sig, expect):
-            return None
+            return None, None
         if int(exp) < time.time():
-            return None
-        return user
+            return None, None
+        return user, ("customer" if role == "customer" else "staff")
     except Exception:
-        return None
+        return None, None
 
 
 def verify_login(user, password):
-    want_u = _cfg("AUTH_USER", "nuun")
-    want_p = _cfg("AUTH_PASS")
-    if not want_p:          # ยังไม่ตั้งรหัส = ไม่ล็อก (กันล็อกตัวเองออก)
-        return True
-    return (hmac.compare_digest((user or "").strip(), want_u)
-            and hmac.compare_digest(password or "", want_p))
+    """คืนสิทธิ์ที่ได้ ('staff' / 'customer') หรือ None ถ้ารหัสไม่ถูก"""
+    # เทียบเป็น bytes เสมอ — compare_digest รับ str ที่เป็น ASCII เท่านั้น
+    # ถ้าผู้ใช้พิมพ์รหัสเป็นภาษาไทย มันจะโยน TypeError แล้ว thread ตาย
+    # ลูกค้าจะเห็นเป็น "เชื่อมต่อไม่ได้" แทน "รหัสผิด" (เจอตอนทดสอบ)
+    eq = lambda a, b: hmac.compare_digest((a or "").encode(), (b or "").encode())
+    u = (user or "").strip()
+    pw = password or ""
+    staff_p = _cfg("AUTH_PASS")
+    if not staff_p:         # ยังไม่ตั้งรหัส = ไม่ล็อก (กันล็อกตัวเองออก)
+        return "staff"
+    if eq(u, _cfg("AUTH_USER", "nuun")) and eq(pw, staff_p):
+        return "staff"
+    cust_u, cust_p = _cfg("CUSTOMER_USER"), _cfg("CUSTOMER_PASS")
+    if cust_u and cust_p and eq(u, cust_u) and eq(pw, cust_p):
+        return "customer"
+    return None
 
 
 # ปลายทาง API ของ Typhoon (SCB10X) — รูปแบบเดียวกับ OpenAI
@@ -655,6 +674,8 @@ CHAT_PROMPT_CUSTOMER = (
     "  ถามราคา -> บอกแต่ราคา / ถามเรื่องย่อ -> เล่าแต่เรื่องย่อ\n"
     "  ห้ามตอบซ้ำเรื่องราคาทุกครั้งถ้าลูกค้าไม่ได้ถามราคา\n"
     "- ถ้าลูกค้าถามต่อเนื่องโดยไม่เอ่ยชื่อเล่ม ให้เข้าใจว่ายังหมายถึงเล่มเดิมที่คุยกันอยู่\n"
+    "- **ห้ามใช้ศัพท์หลังร้าน** เช่น 'สต็อก' 'ระบบ' 'ฐานข้อมูล' 'เรคคอร์ด' — "
+    "พูดว่า 'ที่ร้าน' หรือ 'มีอยู่' แทน (ผิด: 'เล่มนี้มีอยู่ในสต็อก' / ถูก: 'เล่มนี้มีที่ร้านครับ')\n"
     "- **ห้ามพูดถึงข้อมูลหลังร้านเด็ดขาด** ได้แก่ รหัสชั้นวาง ต้นทุนรับซื้อ กำไร รหัสในระบบ "
     "จำนวนสต็อกรวมของร้าน\n"
     "  ถ้าลูกค้าถามเรื่องพวกนี้ ให้ตอบเลี่ยงสุภาพ **ประโยคเดียวแล้วหยุด** "
@@ -811,6 +832,13 @@ def _extract_query(user_msg, history=None):
 REVIEW_WORDS = ("รีวิว", "review", "เสียงตอบรับ", "คนอ่าน", "ความเห็น",
                 "วิจารณ์", "น่าอ่าน", "feedback")
 
+# คำถามเรื่องหลังร้านที่ลูกค้าไม่ควรได้คำตอบ — ตอบด้วยประโยคสำเร็จ ไม่ต้องถามโมเดลเลย
+# กันด้วยโค้ดเพราะสั่งใน prompt แล้วมันยังหลุด เช่นเผลอบอกว่า "ร้านไม่ได้เก็บข้อมูลชั้นวางไว้"
+# ซึ่งเป็นการเล่าเรื่องระบบหลังร้านให้ลูกค้าฟัง (และไม่จริงด้วย)
+BACKOFFICE_WORDS = ("ชั้นไหน", "ชั้นวาง", "อยู่ชั้น", "ต้นทุน", "รับซื้อเท่าไหร่",
+                    "กำไร", "ทุนเท่าไหร่", "ซื้อมาเท่าไหร่", "สต็อกเหลือ", "รหัสในระบบ")
+BACKOFFICE_REPLY = "เรื่องนี้เดี๋ยวพนักงานหน้าร้านช่วยดูให้ได้เลยครับ"
+
 # คำที่บอกว่ากำลังถาม "คุณสมบัติของเล่มที่คุยกันอยู่" ไม่ใช่เริ่มหาเล่มใหม่
 FOLLOWUP_WORDS = ("สภาพ", "ปีไหน", "ปีพิมพ์", "พิมพ์ปี", "พิมพ์ครั้ง", "ราคา", "กี่บาท",
                   "ชั้นไหน", "ชั้นวาง", "อยู่ไหน", "รีวิว", "เรื่องย่อ", "ย่อ",
@@ -875,6 +903,9 @@ def api_chat(history, mode="staff"):
                      if m.get("role") == "user"), "").strip()
     if not user_msg:
         return {"reply": "พิมพ์คำถามได้เลยครับ", "books": []}
+
+    if mode == "customer" and any(w in user_msg for w in BACKOFFICE_WORDS):
+        return {"reply": BACKOFFICE_REPLY, "books": [], "links": []}
 
     # คำถามต่อเนื่อง: ถามคุณสมบัติของเล่มเดิมโดยไม่เอ่ยชื่อ ("สภาพเป็นยังไง", "พิมพ์ปีไหน")
     # ต้องยึดเล่มที่คุยกันอยู่ ห้ามค้นใหม่ เพราะตัวสกัดคำค้นชอบแต่งชื่อหนังสือขึ้นมา
@@ -1092,14 +1123,20 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def _user(self):
-        """คืนชื่อผู้ใช้จาก cookie ถ้าล็อกอินอยู่ ไม่งั้นคืน None"""
+    def _session(self):
+        """คืน (ชื่อผู้ใช้, สิทธิ์) จาก cookie ถ้าล็อกอินอยู่ ไม่งั้น (None, None)"""
         raw = self.headers.get("Cookie") or ""
         for part in raw.split(";"):
             k, _, v = part.strip().partition("=")
             if k == COOKIE and v:
                 return check_token(v)
-        return None
+        return None, None
+
+    def _user(self):
+        return self._session()[0]
+
+    def _role(self):
+        return self._session()[1]
 
     def _set_cookie(self, token, days=SESSION_DAYS):
         # Secure ได้เพราะเสิร์ฟผ่าน https เท่านั้น; HttpOnly กัน JS อ่าน cookie
@@ -1127,7 +1164,8 @@ class Handler(BaseHTTPRequestHandler):
 
         # ยังไม่ล็อกอิน: หน้าแรกส่งหน้าล็อกอินให้ (URL เดิม ไม่ต้อง redirect
         # เพราะแอปอยู่ใต้ path /bookstore-demo/ ของ nginx — redirect จะพาไปผิดที่)
-        if not self._user():
+        user, role = self._session()
+        if not user:
             if path == "/":
                 return self._send(200, (BASE / "login.html").read_text(encoding="utf-8"),
                                   "text/html; charset=utf-8")
@@ -1136,10 +1174,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             return self._send(200, (BASE / "index.html").read_text(encoding="utf-8"),
                               "text/html; charset=utf-8")
+        if path == "/api/me":
+            return self._send(200, {"user": user, "role": role})
         if path == "/zxing.min.js":
             # ไลบรารีอ่านบาร์โค้ดจากกล้อง — เสิร์ฟจากเครื่องเราเอง ไม่พึ่ง CDN ภายนอก
             return self._send(200, (BASE / "zxing.min.js").read_bytes(),
                               "application/javascript; charset=utf-8")
+
+        # บัญชีลูกค้าเข้าได้แค่แชท — กันที่เซิร์ฟเวอร์ ไม่ใช่แค่ซ่อนแท็บในหน้าเว็บ
+        # (ถ้ากันแค่หน้าเว็บ ลูกค้าเปิด URL /api/stats ตรงๆ ก็เห็นข้อมูลร้านทั้งหมด)
+        if role == "customer":
+            return self._send(403, {"error": "บัญชีนี้ใช้ได้เฉพาะการถาม-ตอบหาหนังสือ"})
+
         if path == "/api/search":
             return self._send(200, api_search(query.get("q")))
         if path == "/api/lookup":
@@ -1160,17 +1206,31 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/login":
             u = str(p.get("username") or "")
             pw = str(p.get("password") or "")
-            if verify_login(u, pw):
-                return self._send(200, {"ok": True},
-                                  extra=self._set_cookie(make_token(u.strip() or "user")))
+            role = verify_login(u, pw)
+            if role:
+                return self._send(200, {"ok": True, "role": role},
+                                  extra=self._set_cookie(
+                                      make_token(u.strip() or "user", role)))
             time.sleep(0.7)   # หน่วงเล็กน้อย กันลองสุ่มรหัสรัวๆ
             return self._send(401, {"error": "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"})
 
         if path == "/api/logout":
             return self._send(200, {"ok": True}, extra=self._set_cookie(None, days=0))
 
-        if not self._user():
+        user, role = self._session()
+        if not user:
             return self._send(401, {"error": "ต้องเข้าสู่ระบบก่อน", "auth": False})
+
+        # บัญชีลูกค้าโพสต์ได้เฉพาะ /api/chat และถูกบังคับให้เป็นโหมดลูกค้าเสมอ
+        # (ส่ง mode:"staff" มาเองก็ไม่มีผล เพราะสิทธิ์อยู่ใน token ที่เซ็นไว้)
+        if role == "customer":
+            if path != "/api/chat":
+                return self._send(403, {"error": "บัญชีนี้ใช้ได้เฉพาะการถาม-ตอบหาหนังสือ"})
+            history = p.get("messages") or []
+            if not history:
+                return self._send(400, {"error": "ไม่มีข้อความ"})
+            return self._send(200, api_chat(history, "customer"))
+
         if path == "/api/ai-read":
             mt = p.get("media_type", "image/jpeg")
             images = p.get("images")
