@@ -421,12 +421,28 @@ td.num{text-align:right}
     </div>
 
     <div class="field"><label for="f-title">ชื่อหนังสือ *</label><input id="f-title"></div>
+    <div class="field"><label for="f-title-alt">ชื่อหนังสือ (อีกภาษา)</label><input id="f-title-alt" placeholder="ถ้าปกมีชื่อ 2 ภาษา"></div>
     <div class="row">
       <div class="field"><label for="f-author">ผู้เขียน</label><input id="f-author"></div>
-      <div class="field"><label for="f-pub">สำนักพิมพ์</label><input id="f-pub"></div>
+      <div class="field"><label for="f-translator">ผู้แปล</label><input id="f-translator"></div>
     </div>
     <div class="row">
-      <div class="field"><label for="f-year">ปีพิมพ์</label><input id="f-year" class="mono"></div>
+      <div class="field"><label for="f-pub">สำนักพิมพ์</label><input id="f-pub"></div>
+      <div class="field"><label for="f-category">หมวดหมู่</label><input id="f-category" list="cat-list" placeholder="เช่น นวนิยาย">
+        <datalist id="cat-list">
+          <option value="นวนิยาย"></option><option value="วรรณกรรมแปล"></option>
+          <option value="เรื่องสั้น"></option><option value="ธรรมะ"></option>
+          <option value="จิตวิทยา/พัฒนาตนเอง"></option><option value="ธุรกิจ/การเงิน"></option>
+          <option value="ประวัติศาสตร์"></option><option value="ตำราเรียน"></option>
+          <option value="การ์ตูน"></option><option value="เด็ก/เยาวชน"></option>
+          <option value="ท่องเที่ยว"></option><option value="ทำอาหาร"></option>
+          <option value="อื่นๆ"></option>
+        </datalist>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field"><label for="f-year">ปีพิมพ์</label><input id="f-year" class="mono" inputmode="numeric"></div>
+      <div class="field"><label for="f-edition">พิมพ์ครั้งที่</label><input id="f-edition" class="mono" inputmode="numeric"></div>
       <div class="field"><label for="f-cover">ราคาปก (บาท)</label><input id="f-cover" class="mono" inputmode="decimal"></div>
     </div>
     <div class="field"><label for="f-syn">เนื้อเรื่องย่อ</label><textarea id="f-syn"></textarea></div>
@@ -548,9 +564,12 @@ function bookCardHTML(t) {
   return `
     <div class="card">
       <h3>${esc(t.title)}</h3>
-      <p class="meta">${esc(t.author || 'ไม่ระบุผู้เขียน')} · ${esc(t.publisher || '-')} ${esc(t.year || '')}
+      ${t.title_alt ? `<p class="meta" style="margin:0 0 4px">${esc(t.title_alt)}</p>` : ''}
+      <p class="meta">${esc(t.author || 'ไม่ระบุผู้เขียน')}${t.translator ? ' · แปล ' + esc(t.translator) : ''}
+        · ${esc(t.publisher || '-')} ${esc(t.year || '')}${t.edition ? ' · พิมพ์ครั้งที่ ' + esc(t.edition) : ''}
         · ${t.isbn ? '<span class="mono">' + esc(t.isbn) + '</span>'
-                  : '<span class="badge medium">ไม่มี ISBN · AI อ่านปก</span>'}</p>
+                  : '<span class="badge medium">ไม่มี ISBN · AI อ่านปก</span>'}
+        ${t.category ? '<span class="badge high">' + esc(t.category) + '</span>' : ''}</p>
       ${t.synopsis ? `<p class="syn">${esc(t.synopsis)}</p>` : ''}
       <div class="copies">
         ${t.copies.map(c => `
@@ -769,8 +788,10 @@ $('btn-lookup').addEventListener('click', async () => {
   if (r.found) {
     const t = r.title;
     foundTitleId = t.id;
-    $('f-title').value = t.title || ''; $('f-author').value = t.author || '';
-    $('f-pub').value = t.publisher || ''; $('f-year').value = t.year || '';
+    $('f-title').value = t.title || ''; $('f-title-alt').value = t.title_alt || '';
+    $('f-author').value = t.author || ''; $('f-translator').value = t.translator || '';
+    $('f-pub').value = t.publisher || ''; $('f-category').value = t.category || '';
+    $('f-edition').value = t.edition || ''; $('f-year').value = t.year || '';
     $('f-cover').value = t.cover_price || ''; $('f-syn').value = t.synopsis || '';
     recalcPrice();
     $('lookup-msg').innerHTML = '<span class="badge high">พบในฐานข้อมูล</span> ' +
@@ -855,8 +876,12 @@ $('btn-ai').addEventListener('click', async () => {
   const d = r.extracted || {};
   foundTitleId = null;
   if (d.title) $('f-title').value = d.title;
+  if (d.title_alt) $('f-title-alt').value = d.title_alt;
   if (d.author) $('f-author').value = d.author;
+  if (d.translator) $('f-translator').value = d.translator;
   if (d.publisher) $('f-pub').value = d.publisher;
+  if (d.category) $('f-category').value = d.category;
+  if (d.edition) $('f-edition').value = d.edition;
   if (d.year) $('f-year').value = d.year;
   if (d.isbn) $('isbn').value = d.isbn;
   if (d.synopsis) $('f-syn').value = d.synopsis;
@@ -865,10 +890,10 @@ $('btn-ai').addEventListener('click', async () => {
   const label = {high: 'มั่นใจสูง', medium: 'มั่นใจกลาง', low: 'มั่นใจต่ำ'}[conf] || conf;
   // ชื่อคน/สำนักพิมพ์ AI พลาดวรรณยุกต์บ่อยสุด — ทำเครื่องหมายให้พนักงานเห็นชัดว่าต้องตรวจ
   document.querySelectorAll('.needs-check').forEach(el => el.classList.remove('needs-check'));
-  const FIELD = {author: 'f-author', publisher: 'f-pub'};
+  const FIELD = {author: 'f-author', translator: 'f-translator', publisher: 'f-pub'};
   (r.needs_check || []).forEach(k => FIELD[k] && $(FIELD[k]).classList.add('needs-check'));
   const warn = (r.needs_check || []).length
-    ? '<br><span class="badge low">ต้องตรวจ</span> ชื่อผู้เขียนและสำนักพิมพ์ — AI พลาดวรรณยุกต์ไทยได้ ถ้าสะกดเพี้ยนลูกค้าจะค้นหาไม่เจอ'
+    ? '<br><span class="badge low">ต้องตรวจ</span> ชื่อคนและสำนักพิมพ์ — AI พลาดวรรณยุกต์/ตัวสะกดไทยได้ ถ้าเพี้ยนลูกค้าจะค้นหาไม่เจอ'
     : '';
   $('ai-msg').innerHTML = `<span class="badge ${esc(conf)}">${esc(label)}</span> ` +
     `AI เติมข้อมูลให้แล้ว — <strong>ตรวจก่อนบันทึกทุกครั้ง</strong>` +
@@ -890,7 +915,10 @@ $('btn-save').addEventListener('click', async () => {
   const payload = {
     title_id: foundTitleId,
     isbn: $('isbn').value.trim(), title: $('f-title').value.trim(),
-    author: $('f-author').value.trim(), publisher: $('f-pub').value.trim(),
+    title_alt: $('f-title-alt').value.trim(),
+    author: $('f-author').value.trim(), translator: $('f-translator').value.trim(),
+    publisher: $('f-pub').value.trim(),
+    category: $('f-category').value.trim(), edition: $('f-edition').value.trim(),
     year: $('f-year').value.trim(), synopsis: $('f-syn').value.trim(),
     cover_price: $('f-cover').value, grade,
     price: $('f-price').value, cost: Math.round(($('f-price').value || 0) * 0.4),
@@ -908,7 +936,7 @@ $('btn-save').addEventListener('click', async () => {
   // เด้งไปแท็บสต็อกพร้อมค้นชื่อที่เพิ่งบันทึก ให้เห็นทันทีว่าเข้าระบบแล้วจริง
   $('stock-q').value = payload.title;
   document.querySelector('nav button[data-tab="stock"]').click();
-  ['isbn','f-title','f-author','f-pub','f-year','f-cover','f-syn','f-price'].forEach(i => $(i).value = '');
+  ['isbn','f-title','f-title-alt','f-author','f-translator','f-pub','f-category','f-edition','f-year','f-cover','f-syn','f-price'].forEach(i => $(i).value = '');
   $('lookup-msg').textContent = '';
   foundTitleId = null;
   $('btn-clear-shots').click();   // ล้างรูปทั้ง 3 ช่อง + ข้อความ + panel OCR

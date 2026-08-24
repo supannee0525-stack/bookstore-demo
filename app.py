@@ -52,7 +52,8 @@ TEXT_MODEL = "typhoon-v2.5-30b-a3b-instruct"    # โมเดลข้อคว
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS titles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  isbn TEXT, title TEXT NOT NULL, author TEXT, publisher TEXT,
+  isbn TEXT, title TEXT NOT NULL, title_alt TEXT, author TEXT, translator TEXT,
+  publisher TEXT, category TEXT, edition TEXT,
   year TEXT, synopsis TEXT, cover_price REAL, source TEXT
 );
 CREATE TABLE IF NOT EXISTS copies (
@@ -159,6 +160,12 @@ def init_db():
     fresh = not DB.exists()
     conn = db()
     conn.executescript(SCHEMA)
+    # เพิ่มคอลัมน์ใหม่ให้ฐานข้อมูลเดิมที่มีข้อมูลอยู่แล้ว (ไม่ต้องล้างข้อมูล)
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(titles)")}
+    for col in ("title_alt", "translator", "category", "edition"):
+        if col not in have:
+            conn.execute(f"ALTER TABLE titles ADD COLUMN {col} TEXT")
+    conn.commit()
     if fresh:
         for isbn, title, author, pub, year, syn, cover, copies in SEED:
             cur = conn.execute(
@@ -188,10 +195,12 @@ def _search_titles(q, limit=40):
     if q:
         like = f"%{q}%"
         rows = conn.execute(
-            "SELECT * FROM titles WHERE title LIKE ? OR author LIKE ?"
-            " OR publisher LIKE ? OR IFNULL(isbn,'') LIKE ? OR IFNULL(synopsis,'') LIKE ?"
+            "SELECT * FROM titles WHERE title LIKE ? OR IFNULL(title_alt,'') LIKE ?"
+            " OR IFNULL(author,'') LIKE ? OR IFNULL(translator,'') LIKE ?"
+            " OR IFNULL(publisher,'') LIKE ? OR IFNULL(category,'') LIKE ?"
+            " OR IFNULL(isbn,'') LIKE ? OR IFNULL(synopsis,'') LIKE ?"
             " ORDER BY title LIMIT ?",
-            (like, like, like, like, like, limit),
+            (like,) * 8 + (limit,),
         ).fetchall()
     else:
         rows = conn.execute("SELECT * FROM titles ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
@@ -232,9 +241,10 @@ Instructions:
 - Only return the clean Markdown.
 - Do not include any explanation or extra text.
 - You must include all information on the page.
-- This is a Thai book. Extract EVERY line of Thai text you can see, including
-  Thai titles, author names, and publisher names. Do not skip Thai text.
-- If the page has BOTH Thai and English text, extract BOTH — put each on its own line.
+- This book is from Thailand. Extract EVERY line of text you can see in ANY language
+  (Thai, English, or others). Do not skip Thai text, and do not skip English text.
+- If the page has text in two languages, extract BOTH, each on its own line,
+  keeping each in its original language. Never translate.
 - Copy Thai characters exactly as printed, including tone marks
   (่ ้ ๊ ๋) and vowel marks. Do not normalise or guess a similar word.
 
@@ -246,14 +256,26 @@ Formatting Rules:
 # ขั้นที่ 2 — แยกข้อความที่ OCR ได้ ออกเป็นช่องข้อมูลหนังสือ
 FIELD_PROMPT = (
     "จากข้อความที่อ่านได้จากปกหนังสือด้านล่าง ให้แยกข้อมูลเป็น JSON เท่านั้น ห้ามมีข้อความอื่น\n"
-    'รูปแบบ: {"title":"","author":"","publisher":"","isbn":"","year":"","cover_price":"","synopsis":""}\n'
-    "กติกา: ถ้าช่องไหนไม่มีในข้อความ ให้ใส่ค่าว่าง ห้ามเดา ห้ามเติมจากความรู้ของคุณเอง\n"
-    "ปีพิมพ์และราคาปกให้ใส่เฉพาะตัวเลข\n"
-    "synopsis เขียนย่อ 1-2 ประโยคจากข้อความบนปกเท่านั้น ถ้าไม่มีข้อมูลพอให้ใส่ค่าว่าง\n"
-    "**ถ้ามีทั้งชื่อไทยและชื่ออังกฤษ ให้ใช้ชื่อไทยเป็น title** (ร้านนี้เป็นร้านหนังสือไทย "
-    "ลูกค้าค้นหาด้วยชื่อไทย) ถ้ามีแต่ชื่ออังกฤษจึงใช้ชื่ออังกฤษ\n"
-    "ชื่อผู้เขียนและสำนักพิมพ์ก็เช่นกัน ให้ใช้ภาษาไทยก่อนถ้ามี\n"
-    "คัดลอกตัวอักษรไทยตามที่เห็นเป๊ะๆ รวมวรรณยุกต์ ห้ามเปลี่ยนเป็นคำที่คล้ายกัน\n\n"
+    'รูปแบบ: {"title":"","title_alt":"","author":"","translator":"","publisher":"",'
+    '"category":"","edition":"","isbn":"","year":"","cover_price":"","synopsis":""}\n\n'
+    "กติกาสำคัญที่สุด — **เรื่องภาษา**:\n"
+    "- ทุกช่องให้คัดลอกข้อความ **ตามภาษาที่พิมพ์อยู่บนปกจริง** ห้ามแปล ห้ามถอดเสียงเป็นภาษาอื่น\n"
+    "- ถ้าชื่อผู้เขียนพิมพ์เป็นภาษาอังกฤษ ให้ใส่เป็นภาษาอังกฤษตามนั้น (เช่น 'Yuval Noah Harari' "
+    "ห้ามเขียนเป็น 'ยูวัล โนอาห์ แฮรารี')\n"
+    "- ถ้าพิมพ์เป็นภาษาไทย ก็ใส่ภาษาไทยตามนั้น\n"
+    "- คัดลอกตัวอักษรไทยเป๊ะๆ รวมวรรณยุกต์ ห้ามเปลี่ยนเป็นคำที่คล้ายกัน\n\n"
+    "กติกาแต่ละช่อง:\n"
+    "- title: ชื่อหนังสือหลัก **ภาษาเดียวเท่านั้น** ถ้ามีชื่อไทยให้ใช้ชื่อไทย\n"
+    "  ห้ามเอาชื่อ 2 ภาษามาต่อกันในช่องนี้ (ผิด: 'ประวัติย่อมนุษยชาติ Sapiens' / ถูก: title='ประวัติย่อมนุษยชาติ' และ title_alt='Sapiens')\n"
+    "- title_alt: **ถ้าปกมีชื่อหนังสือ 2 ภาษา ให้ใส่ชื่ออีกภาษาไว้ช่องนี้** (ถ้ามีภาษาเดียวให้เว้นว่าง)\n"
+    "- author: ผู้เขียน / translator: ผู้แปล (ถ้ามีคำว่า 'แปลโดย' 'ผู้แปล' 'Translated by')\n"
+    "- category: หมวดหมู่หนังสือ ถ้าปกระบุไว้ (เช่น นวนิยาย, ธรรมะ, การ์ตูน, ตำราเรียน, "
+    "วรรณกรรมแปล) ถ้าปกไม่ระบุให้เว้นว่าง ห้ามเดาเอง\n"
+    "- edition: พิมพ์ครั้งที่ ใส่เฉพาะตัวเลข (เช่น 'พิมพ์ครั้งที่ 3' -> '3')\n"
+    "- isbn: เลข ISBN ถ้ามีบนปก\n"
+    "- year: ปีพิมพ์ ใส่เฉพาะตัวเลข / cover_price: ราคาปก ใส่เฉพาะตัวเลข\n"
+    "- synopsis: ย่อ 1-2 ประโยคจากข้อความบนปกเท่านั้น\n\n"
+    "ถ้าช่องไหนไม่มีในข้อความ ให้ใส่ค่าว่าง ห้ามเดา ห้ามเติมจากความรู้ของคุณเอง\n\n"
     "ข้อความจากปก:\n"
 )
 
@@ -359,7 +381,7 @@ def api_ai_read(images, media_type):
                 "raw_text": combined, "raw_by_image": raw_by_image}
 
     # เผื่อโมเดลคืนเลขไทย
-    for k in ("year", "cover_price", "isbn"):
+    for k in ("year", "cover_price", "isbn", "edition"):
         v = data.get(k)
         if isinstance(v, str):
             data[k] = v.translate(THAI_DIGITS)
@@ -367,6 +389,15 @@ def api_ai_read(images, media_type):
         data["year"] = data["year"].replace("พ.ศ.", "").replace("ค.ศ.", "").strip()
     if isinstance(data.get("cover_price"), str):
         data["cover_price"] = "".join(c for c in data["cover_price"] if c.isdigit() or c == ".")
+    if isinstance(data.get("edition"), str):
+        data["edition"] = "".join(c for c in data["edition"] if c.isdigit())
+    # กันเหนียว: บางครั้งโมเดลเอาชื่อ 2 ภาษามาต่อกันในช่อง title — ตัดส่วนที่ซ้ำกับ title_alt ออก
+    ti, alt = (data.get("title") or "").strip(), (data.get("title_alt") or "").strip()
+    if ti and alt and len(alt) >= 3 and alt in ti and ti != alt:
+        trimmed = ti.replace(alt, " ").strip(" -–—:|/\t")
+        if len(trimmed) >= 2:
+            data["title"] = " ".join(trimmed.split())
+
     data.setdefault("confidence", "medium")
 
     u2 = r2.get("usage", {})
@@ -377,7 +408,7 @@ def api_ai_read(images, media_type):
         # ช่องที่วัดแล้วว่า AI พลาดบ่อยสุด = ชื่อคน/สำนักพิมพ์ (วรรณยุกต์ไทยเพี้ยน)
         # ส่วนตัวเลข (ปี/ราคา) ทดสอบแล้วแม่นทุกครั้ง จึงไม่ต้อง flag
         # สะกดเพี้ยนแม้ตัวเดียวทำให้ลูกค้าค้นหาไม่เจอเล่มนั้น จึงต้องให้คนยืนยันก่อนบันทึก
-        "needs_check": [k for k in ("author", "publisher") if data.get(k)],
+        "needs_check": [k for k in ("author", "translator", "publisher") if data.get(k)],
         "usage": {   # รวมทุกรอบ OCR + รอบแยกช่องข้อมูล
             "in": in_tok + (u2.get("prompt_tokens") or 0),
             "out": out_tok + (u2.get("completion_tokens") or 0),
@@ -571,10 +602,12 @@ def api_stockin(p):
     tid = p.get("title_id")
     if not tid:
         cur = conn.execute(
-            "INSERT INTO titles(isbn,title,author,publisher,year,synopsis,cover_price,source)"
-            " VALUES(?,?,?,?,?,?,?,?)",
-            (p.get("isbn") or None, p.get("title", "").strip(), p.get("author"),
-             p.get("publisher"), p.get("year"), p.get("synopsis"),
+            "INSERT INTO titles(isbn,title,title_alt,author,translator,publisher,"
+            "category,edition,year,synopsis,cover_price,source)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (p.get("isbn") or None, p.get("title", "").strip(), p.get("title_alt"),
+             p.get("author"), p.get("translator"), p.get("publisher"),
+             p.get("category"), p.get("edition"), p.get("year"), p.get("synopsis"),
              float(p.get("cover_price") or 0) or None, p.get("source") or "manual"),
         )
         tid = cur.lastrowid
