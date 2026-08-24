@@ -691,10 +691,32 @@ $('cover').addEventListener('change', e => {
   if (!f) return;
   const fr = new FileReader();
   fr.onload = () => {
-    coverB64 = fr.result.split(',')[1];
-    coverType = f.type || 'image/jpeg';
     $('preview').src = fr.result; $('preview').hidden = false;
-    $('btn-ai').disabled = false;
+    // ปรับด้านยาวเป็น ~1800px ก่อนส่งให้ AI — ทดสอบแล้วช่วยให้อ่านภาษาไทยแม่นขึ้นจริง
+    // (ภาพเล็กเกินทำให้วรรณยุกต์หาย ภาพใหญ่เกินก็เปลืองค่า token เปล่าๆ)
+    const img = new Image();
+    img.onload = () => {
+      const TARGET = 1800;
+      const scale = TARGET / Math.max(img.width, img.height);
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      try {
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        coverB64 = c.toDataURL('image/jpeg', 0.92).split(',')[1];
+        coverType = 'image/jpeg';
+      } catch (err) {
+        coverB64 = fr.result.split(',')[1];       // ย่อไม่ได้ก็ส่งภาพเดิมไป
+        coverType = f.type || 'image/jpeg';
+      }
+      $('btn-ai').disabled = false;
+    };
+    img.onerror = () => {
+      coverB64 = fr.result.split(',')[1];
+      coverType = f.type || 'image/jpeg';
+      $('btn-ai').disabled = false;
+    };
+    img.src = fr.result;
   };
   fr.readAsDataURL(f);
 });
@@ -717,12 +739,12 @@ $('btn-ai').addEventListener('click', async () => {
   if (d.cover_price) { $('f-cover').value = String(d.cover_price).replace(/[^\d.]/g, ''); recalcPrice(); }
   const conf = d.confidence || 'medium';
   const label = {high: 'มั่นใจสูง', medium: 'มั่นใจกลาง', low: 'มั่นใจต่ำ'}[conf] || conf;
-  // ช่องตัวเลข AI พลาดบ่อย — ทำเครื่องหมายให้พนักงานเห็นชัดว่าต้องตรวจ
+  // ชื่อคน/สำนักพิมพ์ AI พลาดวรรณยุกต์บ่อยสุด — ทำเครื่องหมายให้พนักงานเห็นชัดว่าต้องตรวจ
   document.querySelectorAll('.needs-check').forEach(el => el.classList.remove('needs-check'));
-  const FIELD = {year: 'f-year', cover_price: 'f-cover'};
+  const FIELD = {author: 'f-author', publisher: 'f-pub'};
   (r.needs_check || []).forEach(k => FIELD[k] && $(FIELD[k]).classList.add('needs-check'));
   const warn = (r.needs_check || []).length
-    ? '<br><span class="badge low">ต้องตรวจ</span> ปีพิมพ์และราคาปก — AI อ่านตัวเลขผิดบ่อย เทียบกับปกจริงก่อนบันทึก'
+    ? '<br><span class="badge low">ต้องตรวจ</span> ชื่อผู้เขียนและสำนักพิมพ์ — AI พลาดวรรณยุกต์ไทยได้ ถ้าสะกดเพี้ยนลูกค้าจะค้นหาไม่เจอ'
     : '';
   $('ai-msg').innerHTML = `<span class="badge ${esc(conf)}">${esc(label)}</span> ` +
     `AI เติมข้อมูลให้แล้ว — <strong>ตรวจก่อนบันทึกทุกครั้ง</strong>` +

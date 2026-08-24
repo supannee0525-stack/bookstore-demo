@@ -284,8 +284,10 @@ def api_ai_read(image_b64, media_type):
     usage = resp.get("usage", {})
     return {
         "extracted": data,
-        # ช่องที่วัดแล้วว่า AI พลาดบ่อย ต้องให้คนยืนยันก่อนบันทึก
-        "needs_check": [k for k in ("year", "cover_price") if data.get(k)],
+        # ช่องที่วัดแล้วว่า AI พลาดบ่อยสุด = ชื่อคน/สำนักพิมพ์ (วรรณยุกต์ไทยเพี้ยน)
+        # ส่วนตัวเลข (ปี/ราคา) ทดสอบแล้วแม่นทุกครั้ง จึงไม่ต้อง flag
+        # สะกดเพี้ยนแม้ตัวเดียวทำให้ลูกค้าค้นหาไม่เจอเล่มนั้น จึงต้องให้คนยืนยันก่อนบันทึก
+        "needs_check": [k for k in ("author", "publisher") if data.get(k)],
         "usage": {"in": usage.get("prompt_tokens"), "out": usage.get("completion_tokens")},
     }
 

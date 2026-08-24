@@ -1,0 +1,60 @@
+[
+  {
+    "file": "real1.jpg",
+    "typhoon_seconds": 5.2,
+    "typhoon_text": "ลูกอีสาน\nคำพูน บุญทวี\n\nนวนิยายรางวัลซีไรต์\n\nสำนักพิมพ์โป๊ยเซียน พ.ศ. 2519\nราคา 60 บาท",
+    "typhoon_only_fields": {
+      "title": "ลูกอีสาน",
+      "author": "คำพูน บุญทวี",
+      "publisher": "สำนักพิมพ์โป๊ยเซียน",
+      "year": "2519",
+      "cover_price": "60"
+    },
+    "typhoon_fields": {
+      "title": "ลูกอีสาน",
+      "author": "คำพูน บุญทวี",
+      "publisher": "สำนักพิมพ์โป๊ยเซียน",
+      "year": "2519",
+      "cover_price": "60"
+    },
+    "gpt4o_fields": {
+      "title": "ลูกอีสาน",
+      "author": "คำพูน บุญทวี",
+      "publisher": "สำนักพิมพ์โป้ยเซียน",
+      "year": "2519",
+      "cover_price": "60"
+    },
+    "disagree": [
+      "publisher"
+    ]
+  },
+  {
+    "file": "real2.jpg",
+    "typhoon_seconds": 0.8,
+    "typhoon_text": "# จดหมายจากเมืองไทย\n\n## โบตัน\n\nรางวัลวรรณกรรมสร้างสรรค์ยอดเยี่ยม\n\nสำนักพิมพ์ชมรมเด็ก\nพ.ศ. 2513\nราคา 55 บาท",
+    "typhoon_only_fields": {
+      "title": "จดหมายจากเมืองไทย",
+      "author": "โบตัน",
+      "publisher": "สำนักพิมพ์ชมรมเด็ก",
+      "year": "2513",
+      "cover_price": "55"
+    },
+    "typhoon_fields": {
+      "title": "จดหมายจากเมืองไทย",
+      "author": "โบตัน",
+      "publisher": "สำนักพิมพ์ชมรมเด็ก",
+      "year": "2513",
+      "cover_price": "55"
+    },
+    "gpt4o_fields": {
+      "title": "จดหมายจากเมืองไทย",
+      "author": "โบตั๋น",
+      "publisher": "สำนักพิมพ์ชมรมเด็ก",
+      "year": "2513",
+      "cover_price": "55"
+    },
+    "disagree": [
+      "author"
+    ]
+  }
+]
