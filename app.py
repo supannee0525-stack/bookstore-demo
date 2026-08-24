@@ -342,6 +342,45 @@ def typhoon_post(body, timeout=120):
     return json.load(urllib.request.urlopen(req, timeout=timeout))
 
 
+GEMINI_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
+              "{model}:generateContent?key={key}")
+GEMINI_MODEL = "gemini-3-flash-preview"   # ทดสอบแล้วอ่านวรรณยุกต์ไทยครบ 6/6 (Typhoon ได้ 3/6)
+
+
+def _gemini_read(images, media_type):
+    """ทางเลือกที่ 2 — อ่านด้วย Gemini ครั้งเดียวจบ (อ่านภาพ + แยกช่องพร้อมกัน)
+
+    ต่างจาก Typhoon ที่ต้อง 2 ขั้น เพราะ Typhoon OCR ถอดข้อความได้แต่แยกช่องไม่ได้
+    ข้อแลกเปลี่ยน: Gemini เป็นบริการบนคลาวด์ ไม่ใช่ Local AI
+    """
+    key = _cfg("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("ไม่พบ GEMINI_API_KEY บนเครื่อง")
+
+    parts = [{"text": FIELD_PROMPT.replace("ข้อความจากปก:", "ภาพปกหนังสือ:")}]
+    for i, im in enumerate(images[:3]):
+        b64 = im.get("image_b64") or ""
+        if not b64:
+            continue
+        parts.append({"text": f"[{im.get('label') or f'รูปที่ {i + 1}'}]"})
+        parts.append({"inline_data": {"mime_type": im.get("media_type") or media_type,
+                                      "data": b64}})
+
+    req = urllib.request.Request(
+        GEMINI_URL.format(model=GEMINI_MODEL, key=key),
+        data=json.dumps({
+            "contents": [{"parts": parts}],
+            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+        }).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    r = json.load(urllib.request.urlopen(req, timeout=180))
+    txt = r["candidates"][0]["content"]["parts"][0]["text"]
+    u = r.get("usageMetadata", {})
+    return txt, {"prompt_tokens": u.get("promptTokenCount") or 0,
+                 "completion_tokens": u.get("candidatesTokenCount") or 0}
+
+
 def _ocr_one(image_b64, media_type):
     """ขั้นที่ 1 — ให้ Typhoon OCR ถอดข้อความจากภาพเดียว คืน (text, usage)"""
     r = typhoon_post({
@@ -367,17 +406,27 @@ def _ocr_one(image_b64, media_type):
     return txt, r.get("usage", {})
 
 
-def api_ai_read(images, media_type):
-    """อ่านหนังสือด้วย Typhoon 2 ขั้น: OCR ทุกรูป -> รวมข้อความ -> แยกเป็นช่องข้อมูล
+def api_ai_read(images, media_type, engine="typhoon"):
+    """อ่านหนังสือจากภาพ แล้วแยกเป็นช่องข้อมูล — เลือกเครื่องอ่านได้ 2 แบบ
 
     images = [{"label": "ปกหน้า", "image_b64": "..."}, ...] รับได้หลายรูป
     (ปกหน้า/ปกหลัง/หน้าแรก) เพราะข้อมูลกระจายกันอยู่ — เนื้อเรื่องย่อมักอยู่ปกหลัง
     ส่วนปีพิมพ์กับราคามักอยู่หน้าแรก
 
-    Typhoon OCR เป็น OCR ล้วน (ไม่แยกช่องให้) จึงต้องมีขั้นที่ 2
+    engine="typhoon" — 2 ขั้น (OCR ทุกรูป -> รวมข้อความ -> แยกช่อง) เพราะ Typhoon OCR
+                       เป็น OCR ล้วน แยกช่องเองไม่ได้ / รันบนเครื่องตัวเองได้
+    engine="gemini"  — ขั้นเดียว อ่านวรรณยุกต์ไทยแม่นกว่ามาก แต่เป็นคลาวด์
     """
     if not images:
         return {"error": "ไม่มีภาพ"}
+
+    if engine == "gemini":
+        try:
+            out, u2 = _gemini_read(images, media_type)
+        except Exception as exc:
+            return {"error": f"Gemini อ่านภาพไม่สำเร็จ: {exc}"}
+        raw_by_image, combined, in_tok, out_tok = [], "", 0, 0
+        return _finish_read(out, combined, raw_by_image, in_tok, out_tok, u2)
 
     # ขั้นที่ 1 — OCR ทุกรูป
     raw_by_image, in_tok, out_tok = [], 0, 0
@@ -415,7 +464,13 @@ def api_ai_read(images, media_type):
         return {"error": f"แยกช่องข้อมูลไม่สำเร็จ: {exc}",
                 "raw_text": combined, "raw_by_image": raw_by_image}
 
-    out = r2["choices"][0]["message"]["content"].strip()
+    return _finish_read(r2["choices"][0]["message"]["content"], combined,
+                        raw_by_image, in_tok, out_tok, r2.get("usage", {}))
+
+
+def _finish_read(out, combined, raw_by_image, in_tok, out_tok, u2):
+    """แกะ JSON ที่โมเดลตอบมา + ทำความสะอาดข้อมูล (ใช้ร่วมกันทั้ง Typhoon และ Gemini)"""
+    out = (out or "").strip()
     if out.startswith("```"):
         out = out.split("```")[1]
         out = out[4:] if out.lower().startswith("json") else out
@@ -461,7 +516,6 @@ def api_ai_read(images, media_type):
 
     data.setdefault("confidence", "medium")
 
-    u2 = r2.get("usage", {})
     return {
         "extracted": data,
         "raw_text": combined,              # ข้อความรวมทุกรูป
@@ -874,7 +928,8 @@ class Handler(BaseHTTPRequestHandler):
                 images = [{"label": "ปกหน้า", "image_b64": one}]
             if not isinstance(images, list):
                 return self._send(400, {"error": "รูปแบบข้อมูลภาพไม่ถูกต้อง"})
-            return self._send(200, api_ai_read(images, mt))
+            eng = "gemini" if p.get("engine") == "gemini" else "typhoon"
+            return self._send(200, api_ai_read(images, mt, eng))
         if path == "/api/stockin":
             if not (p.get("title") or p.get("title_id")):
                 return self._send(400, {"error": "ต้องมีชื่อหนังสือ"})

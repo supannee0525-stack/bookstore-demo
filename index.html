@@ -256,6 +256,18 @@ td.num{text-align:right}
 .slot-hint{font-size:.66rem;color:var(--muted);z-index:2}
 .shot-slot.filled .slot-hint{display:none}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.engine-pick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.eng{cursor:pointer}
+.eng input{position:absolute;opacity:0;pointer-events:none}
+.eng-box{
+  display:block;padding:9px 11px;border-radius:10px;
+  background:var(--panel-2);border:1px solid var(--line);
+  transition:border-color .17s ease, box-shadow .17s ease;
+}
+.eng-box b{display:block;font-size:.85rem;font-weight:600}
+.eng-box em{display:block;font-style:normal;font-size:.68rem;color:var(--muted);line-height:1.45;margin-top:2px}
+.eng input:checked + .eng-box{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.eng input:focus-visible + .eng-box{border-color:var(--accent-2)}
 #ocr-raw summary{font-size:.8rem;color:var(--accent);cursor:pointer}
 #ocr-raw pre{
   white-space:pre-wrap;word-break:break-word;font-size:.75rem;
@@ -419,6 +431,22 @@ td.num{text-align:right}
           <img class="slot-img" hidden alt="">
           <span class="slot-hint">แตะเพื่อถ่าย</span>
           <input type="file" id="cover-inside" data-slot="inside" accept="image/*" capture="environment" hidden>
+        </label>
+      </div>
+      <div class="engine-pick" role="radiogroup" aria-label="เลือกเครื่องอ่าน">
+        <label class="eng">
+          <input type="radio" name="engine" value="typhoon" checked>
+          <span class="eng-box">
+            <b>Typhoon</b>
+            <em>รันบนเครื่องเองได้ · วรรณยุกต์ไทยเพี้ยน</em>
+          </span>
+        </label>
+        <label class="eng">
+          <input type="radio" name="engine" value="gemini">
+          <span class="eng-box">
+            <b>Gemini</b>
+            <em>อ่านไทยแม่นกว่ามาก · ใช้คลาวด์</em>
+          </span>
         </label>
       </div>
       <div class="row" style="margin-top:8px">
@@ -897,9 +925,11 @@ $('btn-ai').addEventListener('click', async () => {
   if (shotCount() === 0) return;
   $('btn-ai').disabled = true;
   const n = shotCount();
-  $('ai-msg').innerHTML = `<span class="spin"></span> AI กำลังอ่าน ${n} รูป...`;
+  const engine = (document.querySelector('input[name="engine"]:checked') || {}).value || 'typhoon';
+  const engName = engine === 'gemini' ? 'Gemini' : 'Typhoon';
+  $('ai-msg').innerHTML = `<span class="spin"></span> ${engName} กำลังอ่าน ${n} รูป...`;
   const images = Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]}));
-  const r = await post('ai-read', {images: images, media_type: 'image/jpeg'});
+  const r = await post('ai-read', {images: images, media_type: 'image/jpeg', engine: engine});
   $('btn-ai').disabled = false;
   if (r.error) { $('ai-msg').innerHTML = '<span class="badge low">ผิดพลาด</span> ' + esc(r.error); return; }
   const d = r.extracted || {};
