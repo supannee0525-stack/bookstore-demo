@@ -329,7 +329,11 @@ td.num{text-align:right}
         <p>ระบบสต็อก + ชั้นวาง + รับซื้อ</p>
       </div>
     </div>
-    <span class="demo-tag">demo</span>
+    <div style="display:flex;align-items:center;gap:8px;flex:none">
+      <span class="demo-tag">demo</span>
+      <button id="btn-logout" class="demo-tag" style="cursor:pointer;background:none;font-family:inherit"
+              title="ออกจากระบบ">ออก</button>
+    </div>
   </div>
 </header>
 
@@ -529,14 +533,25 @@ function toast(msg, type) {
   toastTimer = setTimeout(() => el.remove(), 3200);
 }
 
-async function get(path) { const r = await fetch(API(path)); return r.json(); }
+// session หมดอายุ/ถูกล้าง -> โหลดหน้าใหม่ ซึ่งจะกลายเป็นหน้าล็อกอินเอง
+function guard(r) {
+  if (r.status === 401) { location.reload(); throw new Error('unauthorized'); }
+  return r;
+}
+async function get(path) { const r = guard(await fetch(API(path))); return r.json(); }
 async function post(path, body) {
-  const r = await fetch(API(path), {
+  const r = guard(await fetch(API(path), {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body || {})
-  });
+  }));
   return r.json();
 }
+
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  if (!confirm('ออกจากระบบ?')) return;
+  try { await fetch(API('logout'), {method: 'POST'}); } catch (e) {}
+  location.reload();
+});
 
 /* ---------- header scroll shadow ---------- */
 const headerEl = document.querySelector('header');

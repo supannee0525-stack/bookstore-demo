@@ -3,6 +3,8 @@
 stdlib only: http.server + sqlite3 + urllib (ไม่ต้องลง package)
 """
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -39,6 +41,52 @@ def _key_from(env_path, name):
 
 def typhoon_key():
     return os.environ.get("TYPHOON_API_KEY") or _key_from(BASE / ".env", "TYPHOON_API_KEY")
+
+
+# ---------------------------------------------------------------- auth
+# ล็อกอินง่ายๆ กันคนอื่นเข้ามาใช้ (และกันกิน API key ของร้าน)
+# เก็บ session ใน cookie ที่เซ็นด้วย HMAC — ปลอมไม่ได้ ไม่ต้องมีฐานข้อมูล session
+COOKIE = "bookstore_session"
+SESSION_DAYS = 14
+
+
+def _cfg(name, default=""):
+    return os.environ.get(name) or _key_from(BASE / ".env", name) or default
+
+
+def _secret():
+    return _cfg("SESSION_SECRET", "dev-secret-change-me").encode()
+
+
+def make_token(user):
+    exp = str(int(time.time()) + SESSION_DAYS * 86400)
+    body = f"{user}|{exp}"
+    sig = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()[:32]
+    return base64.urlsafe_b64encode(f"{body}|{sig}".encode()).decode()
+
+
+def check_token(tok):
+    """คืนชื่อผู้ใช้ถ้า token ถูกต้องและยังไม่หมดอายุ ไม่งั้นคืน None"""
+    try:
+        raw = base64.urlsafe_b64decode(tok.encode()).decode()
+        user, exp, sig = raw.rsplit("|", 2)
+        expect = hmac.new(_secret(), f"{user}|{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+        if not hmac.compare_digest(sig, expect):
+            return None
+        if int(exp) < time.time():
+            return None
+        return user
+    except Exception:
+        return None
+
+
+def verify_login(user, password):
+    want_u = _cfg("AUTH_USER", "nuun")
+    want_p = _cfg("AUTH_PASS")
+    if not want_p:          # ยังไม่ตั้งรหัส = ไม่ล็อก (กันล็อกตัวเองออก)
+        return True
+    return (hmac.compare_digest((user or "").strip(), want_u)
+            and hmac.compare_digest(password or "", want_p))
 
 
 # ปลายทาง API ของ Typhoon (SCB10X) — รูปแบบเดียวกับ OpenAI
@@ -695,7 +743,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # เงียบไว้ ไม่ต้องรกใน journal
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False)
         raw = body.encode("utf-8") if isinstance(body, str) else body
@@ -703,8 +751,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in (extra or []):
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(raw)
+
+    def _user(self):
+        """คืนชื่อผู้ใช้จาก cookie ถ้าล็อกอินอยู่ ไม่งั้นคืน None"""
+        raw = self.headers.get("Cookie") or ""
+        for part in raw.split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == COOKIE and v:
+                return check_token(v)
+        return None
+
+    def _set_cookie(self, token, days=SESSION_DAYS):
+        # Secure ได้เพราะเสิร์ฟผ่าน https เท่านั้น; HttpOnly กัน JS อ่าน cookie
+        age = days * 86400 if token else 0
+        val = token or "deleted"
+        return [("Set-Cookie",
+                 f"{COOKIE}={val}; Path=/; Max-Age={age}; "
+                 "HttpOnly; Secure; SameSite=Lax")]
 
     def _read_json(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -721,6 +788,14 @@ class Handler(BaseHTTPRequestHandler):
         if "?" in self.path:
             from urllib.parse import parse_qs, unquote
             query = {k: unquote(v[0]) for k, v in parse_qs(self.path.split("?", 1)[1]).items()}
+
+        # ยังไม่ล็อกอิน: หน้าแรกส่งหน้าล็อกอินให้ (URL เดิม ไม่ต้อง redirect
+        # เพราะแอปอยู่ใต้ path /bookstore-demo/ ของ nginx — redirect จะพาไปผิดที่)
+        if not self._user():
+            if path == "/":
+                return self._send(200, (BASE / "login.html").read_text(encoding="utf-8"),
+                                  "text/html; charset=utf-8")
+            return self._send(401, {"error": "ต้องเข้าสู่ระบบก่อน", "auth": False})
 
         if path == "/":
             return self._send(200, (BASE / "index.html").read_text(encoding="utf-8"),
@@ -743,6 +818,21 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0].rstrip("/") or "/"
         p = self._read_json()
+
+        if path == "/api/login":
+            u = str(p.get("username") or "")
+            pw = str(p.get("password") or "")
+            if verify_login(u, pw):
+                return self._send(200, {"ok": True},
+                                  extra=self._set_cookie(make_token(u.strip() or "user")))
+            time.sleep(0.7)   # หน่วงเล็กน้อย กันลองสุ่มรหัสรัวๆ
+            return self._send(401, {"error": "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"})
+
+        if path == "/api/logout":
+            return self._send(200, {"ok": True}, extra=self._set_cookie(None, days=0))
+
+        if not self._user():
+            return self._send(401, {"error": "ต้องเข้าสู่ระบบก่อน", "auth": False})
         if path == "/api/ai-read":
             mt = p.get("media_type", "image/jpeg")
             images = p.get("images")

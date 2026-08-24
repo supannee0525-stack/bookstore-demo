@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เข้าสู่ระบบ — ร้านหนังสือมือสอง</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#050810; --panel:#0c1220; --panel-2:#121b30;
+  --ink:#e8edf9; --muted:#7c8bab; --line:#20304d;
+  --accent:#2f7bff; --accent-2:#22d3ee; --accent-ink:#fff;
+  --accent-grad:linear-gradient(135deg,var(--accent),var(--accent-2));
+  --danger:#ff7a7a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--ground);color:var(--ink);
+  font-family:'Kanit',system-ui,sans-serif;
+  display:grid;place-items:center;padding:24px;
+}
+.card{
+  width:100%;max-width:380px;
+  background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  padding:32px 26px;box-shadow:0 24px 60px -24px rgba(0,0,0,.8);
+}
+.logo{
+  width:52px;height:52px;border-radius:14px;background:var(--accent-grad);
+  display:grid;place-items:center;margin:0 auto 18px;
+  box-shadow:0 0 0 6px rgba(47,123,255,.16);
+}
+.logo svg{width:26px;height:26px;stroke:var(--accent-ink);fill:none;stroke-width:2}
+h1{
+  font-family:'Chakra Petch',sans-serif;font-size:1.3rem;font-weight:700;
+  text-align:center;margin:0 0 4px;letter-spacing:-.01em;
+}
+.sub{text-align:center;color:var(--muted);font-size:.85rem;margin:0 0 26px}
+label{display:block;font-size:.8rem;color:var(--muted);margin:0 0 5px}
+input{
+  width:100%;font-family:inherit;font-size:.98rem;color:var(--ink);
+  background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 14px;margin-bottom:14px;
+  transition:border-color .17s ease, box-shadow .17s ease;
+}
+input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,123,255,.28)}
+button{
+  width:100%;appearance:none;border:0;cursor:pointer;
+  font-family:inherit;font-size:.98rem;font-weight:600;
+  background:var(--accent-grad);color:var(--accent-ink);
+  padding:13px;border-radius:10px;margin-top:4px;
+  transition:transform .12s ease, filter .17s ease;
+}
+button:hover{filter:brightness(1.08)}
+button:active{transform:scale(.98)}
+button:disabled{opacity:.55;cursor:not-allowed}
+.msg{
+  min-height:20px;margin:14px 0 0;font-size:.85rem;text-align:center;color:var(--danger);
+}
+.foot{margin:20px 0 0;text-align:center;font-size:.74rem;color:var(--muted);line-height:1.6}
+.spin{
+  display:inline-block;width:13px;height:13px;border:2px solid var(--line);
+  border-top-color:var(--accent);border-radius:50%;
+  animation:sp .7s linear infinite;vertical-align:-2px;
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+<form class="card" id="form" autocomplete="on">
+  <div class="logo" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H12v16H5.5A1.5 1.5 0 0 1 4 18.5v-13z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H12v16h6.5a1.5 1.5 0 0 0 1.5-1.5v-13z"/></svg>
+  </div>
+  <h1>ร้านหนังสือมือสอง</h1>
+  <p class="sub">ระบบสต็อก + ชั้นวาง + รับซื้อ</p>
+
+  <label for="u">ชื่อผู้ใช้</label>
+  <input id="u" name="username" autocomplete="username" autocapitalize="none" required>
+
+  <label for="p">รหัสผ่าน</label>
+  <input id="p" name="password" type="password" autocomplete="current-password" required>
+
+  <button type="submit" id="btn">เข้าสู่ระบบ</button>
+  <p class="msg" id="msg" role="status"></p>
+  <p class="foot">ระบบนี้จำกัดเฉพาะผู้ที่ได้รับอนุญาต<br>เพื่อป้องกันการใช้งานโดยบุคคลอื่น</p>
+</form>
+
+<script>
+  const API = p => new URL('api/' + p, location.href.replace(/[^/]*$/, '')).toString();
+  const form = document.getElementById('form');
+  const msg = document.getElementById('msg');
+  const btn = document.getElementById('btn');
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    btn.disabled = true;
+    msg.style.color = '';
+    msg.innerHTML = '<span class="spin"></span> กำลังตรวจสอบ...';
+    try {
+      const r = await fetch(API('login'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          username: document.getElementById('u').value,
+          password: document.getElementById('p').value
+        })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        msg.textContent = 'เข้าสู่ระบบสำเร็จ กำลังเปิดระบบ...';
+        location.reload();
+        return;
+      }
+      msg.textContent = d.error || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+    } catch (err) {
+      msg.textContent = 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง';
+    }
+    btn.disabled = false;
+  });
+
+  document.getElementById('u').focus();
+</script>
+</body>
+</html>
