@@ -381,6 +381,48 @@ def _gemini_read(images, media_type):
                  "completion_tokens": u.get("candidatesTokenCount") or 0}
 
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+QWEN_MODEL = "qwen/qwen3.8-27b"   # โมเดลเปิด ดาวน์โหลดมารันบนเครื่องเองได้ = ตัวเลือก Local จริง
+
+
+def _qwen_read(images, media_type):
+    """ทางเลือกที่ 3 — Qwen ผ่าน OpenRouter (อ่าน + แยกช่อง ครั้งเดียวจบ)
+
+    Qwen เป็นโมเดลเปิด (ดาวน์โหลดมารันบน Mac ได้) ต่างจาก Gemini ที่รันเองไม่ได้
+    ที่ยิงผ่าน OpenRouter เพราะเครื่องนี้ไม่มีการ์ดจอ — แต่เป็นตัวโมเดลเดียวกัน
+    จึงใช้วัดว่า "ถ้าเอาลง Mac จริง จะอ่านแม่นแค่ไหน" ได้ (ความเร็วเชื่อไม่ได้)
+    """
+    key = _cfg("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError("ไม่พบ OPENROUTER_API_KEY บนเครื่อง")
+
+    content = [{"type": "text",
+                "text": FIELD_PROMPT.replace("ข้อความจากปก:", "ภาพปกหนังสือ:")}]
+    for i, im in enumerate(images[:3]):
+        b64 = im.get("image_b64") or ""
+        if not b64:
+            continue
+        content.append({"type": "text", "text": f"[{im.get('label') or f'รูปที่ {i + 1}'}]"})
+        content.append({"type": "image_url", "image_url": {
+            "url": f"data:{im.get('media_type') or media_type};base64,{b64}"}})
+
+    req = urllib.request.Request(
+        OPENROUTER_URL,
+        data=json.dumps({
+            "model": QWEN_MODEL, "temperature": 0, "max_tokens": 1500,
+            # Qwen รุ่นนี้ "คิดในใจ" ก่อนตอบ ถ้าไม่ปิด มันใช้ token หมดไปกับการคิด
+            # แล้วส่งคำตอบว่างเปล่ากลับมา (วัดได้: reasoning 2495 token, content 0 ตัวอักษร)
+            # ทดสอบแล้วปิดโหมดคิดได้ผลดีกว่าทุกทาง — ถูกกว่า 4 เท่า และอ่านไทยแม่นกว่า
+            "reasoning": {"enabled": False},
+            "messages": [{"role": "user", "content": content}],
+        }).encode(),
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+    )
+    r = json.load(urllib.request.urlopen(req, timeout=240))
+    txt = r["choices"][0]["message"].get("content") or ""
+    return txt, r.get("usage", {})
+
+
 def _ocr_one(image_b64, media_type):
     """ขั้นที่ 1 — ให้ Typhoon OCR ถอดข้อความจากภาพเดียว คืน (text, usage)"""
     r = typhoon_post({
@@ -415,18 +457,20 @@ def api_ai_read(images, media_type, engine="typhoon"):
 
     engine="typhoon" — 2 ขั้น (OCR ทุกรูป -> รวมข้อความ -> แยกช่อง) เพราะ Typhoon OCR
                        เป็น OCR ล้วน แยกช่องเองไม่ได้ / รันบนเครื่องตัวเองได้
-    engine="gemini"  — ขั้นเดียว อ่านวรรณยุกต์ไทยแม่นกว่ามาก แต่เป็นคลาวด์
+    engine="gemini"  — ขั้นเดียว อ่านวรรณยุกต์ไทยแม่นกว่ามาก แต่เป็นคลาวด์ รันเองไม่ได้
+    engine="qwen"    — ขั้นเดียว โมเดลเปิด รันบน Mac ได้ (ยิงผ่าน OpenRouter เพราะเครื่องนี้ไม่มีการ์ดจอ)
     """
     if not images:
         return {"error": "ไม่มีภาพ"}
 
-    if engine == "gemini":
+    ONE_SHOT = {"gemini": (_gemini_read, "Gemini"), "qwen": (_qwen_read, "Qwen")}
+    if engine in ONE_SHOT:
+        fn, name = ONE_SHOT[engine]
         try:
-            out, u2 = _gemini_read(images, media_type)
+            out, u2 = fn(images, media_type)
         except Exception as exc:
-            return {"error": f"Gemini อ่านภาพไม่สำเร็จ: {exc}"}
-        raw_by_image, combined, in_tok, out_tok = [], "", 0, 0
-        return _finish_read(out, combined, raw_by_image, in_tok, out_tok, u2)
+            return {"error": f"{name} อ่านภาพไม่สำเร็จ: {exc}"}
+        return _finish_read(out, "", [], 0, 0, u2)
 
     # ขั้นที่ 1 — OCR ทุกรูป
     raw_by_image, in_tok, out_tok = [], 0, 0
@@ -480,6 +524,7 @@ def _log_read(engine, n_images, res):
                 "engine": engine,
                 "n_images": n_images,
                 "error": res.get("error"),
+                "raw": res.get("raw"),   # คำตอบดิบตอนแกะ JSON ไม่ได้ — ไว้ไล่หาสาเหตุ
                 "extracted": res.get("extracted"),
                 "raw_text": (res.get("raw_text") or "")[:1500],
                 "usage": res.get("usage"),
@@ -948,7 +993,8 @@ class Handler(BaseHTTPRequestHandler):
                 images = [{"label": "ปกหน้า", "image_b64": one}]
             if not isinstance(images, list):
                 return self._send(400, {"error": "รูปแบบข้อมูลภาพไม่ถูกต้อง"})
-            eng = "gemini" if p.get("engine") == "gemini" else "typhoon"
+            eng = p.get("engine")
+            eng = eng if eng in ("gemini", "qwen") else "typhoon"
             res = api_ai_read(images, mt, eng)
             _log_read(eng, len(images), res)
             return self._send(200, res)

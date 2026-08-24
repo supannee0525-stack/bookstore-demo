@@ -257,7 +257,8 @@ td.num{text-align:right}
 .shot-slot.filled .slot-hint{display:none}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
-#cmp table{width:100%;border-collapse:collapse;font-size:.78rem}
+.cmp-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+#cmp table{width:100%;min-width:430px;border-collapse:collapse;font-size:.76rem}
 #cmp th,#cmp td{padding:7px 9px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
 #cmp th{background:var(--panel-2);font-weight:600;font-size:.74rem;color:var(--muted)}
 #cmp td:first-child{color:var(--muted);white-space:nowrap;width:1%}
@@ -265,7 +266,7 @@ td.num{text-align:right}
 #cmp tr.diff td:first-child{color:var(--accent-2)}
 #cmp .cmp-foot{display:flex;gap:8px;padding:9px;background:var(--panel-2);flex-wrap:wrap}
 #cmp .cmp-note{padding:8px 9px;font-size:.74rem;color:var(--muted);line-height:1.5}
-.engine-pick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.engine-pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:7px;margin-top:10px}
 .eng{cursor:pointer}
 .eng input{position:absolute;opacity:0;pointer-events:none}
 .eng-box{
@@ -457,10 +458,17 @@ td.num{text-align:right}
             <em>อ่านไทยแม่นกว่ามาก · ใช้คลาวด์</em>
           </span>
         </label>
+        <label class="eng">
+          <input type="radio" name="engine" value="qwen">
+          <span class="eng-box">
+            <b>Qwen 27B</b>
+            <em>โมเดลเปิด · ลง Mac ได้ (ต้องแรม 32GB)</em>
+          </span>
+        </label>
       </div>
       <div class="row" style="margin-top:8px">
         <button class="btn sm" id="btn-ai" disabled>ให้ AI อ่าน</button>
-        <button class="btn ghost sm" id="btn-compare" disabled style="flex:none">เทียบ 2 โมเดล</button>
+        <button class="btn ghost sm" id="btn-compare" disabled style="flex:none">เทียบ 3 โมเดล</button>
         <button class="btn ghost sm" id="btn-clear-shots" style="flex:none">ล้างรูป</button>
       </div>
       <div id="cmp" hidden></div>
@@ -995,44 +1003,63 @@ const CMP_FIELDS = [
   ['edition', 'พิมพ์ครั้งที่'], ['year', 'ปีพิมพ์'], ['isbn', 'ISBN'], ['cover_price', 'ราคาปก']
 ];
 
+const ENGINES = [
+  {id: 'typhoon', name: 'Typhoon', note: 'รันเองได้'},
+  {id: 'gemini',  name: 'Gemini',  note: 'คลาวด์'},
+  {id: 'qwen',    name: 'Qwen 27B', note: 'ลง Mac ได้'}
+];
+
 $('btn-compare').addEventListener('click', async () => {
   if (shotCount() === 0) return;
   $('btn-compare').disabled = true; $('btn-ai').disabled = true;
+  $('cmp').hidden = true;
   const images = Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]}));
-  const body = {images: images, media_type: 'image/jpeg'};
-  $('ai-msg').innerHTML = '<span class="spin"></span> อ่านด้วย Typhoon...';
-  const a = await post('ai-read', Object.assign({}, body, {engine: 'typhoon'}));
-  $('ai-msg').innerHTML = '<span class="spin"></span> อ่านด้วย Gemini...';
-  const b = await post('ai-read', Object.assign({}, body, {engine: 'gemini'}));
+
+  const res = [];
+  for (let i = 0; i < ENGINES.length; i++) {
+    $('ai-msg').innerHTML = `<span class="spin"></span> อ่านด้วย ${ENGINES[i].name}` +
+      ` <span style="color:var(--muted)">(${i + 1}/${ENGINES.length})</span>`;
+    res.push(await post('ai-read', {images: images, media_type: 'image/jpeg', engine: ENGINES[i].id}));
+  }
   $('btn-compare').disabled = false; $('btn-ai').disabled = false;
 
-  const da = a.extracted || {}, db = b.extracted || {};
   let nDiff = 0;
   const rows = CMP_FIELDS.map(([k, th]) => {
-    const va = (da[k] == null ? '' : String(da[k])).trim();
-    const vb = (db[k] == null ? '' : String(db[k])).trim();
-    if (!va && !vb) return '';
-    const diff = va !== vb;
+    const vals = res.map(r => {
+      const v = (r.extracted || {})[k];
+      return (v == null ? '' : String(v)).trim();
+    });
+    if (vals.every(v => !v)) return '';
+    // ต่างกัน = มีอย่างน้อย 2 โมเดลที่อ่านไม่เหมือนกัน -> ต้องเอาปกจริงมาตัดสิน
+    const diff = new Set(vals).size > 1;
     if (diff) nDiff++;
     return `<tr class="${diff ? 'diff' : ''}"><td>${esc(th)}</td>` +
-           `<td>${esc(va) || '<span style="color:var(--muted)">—</span>'}</td>` +
-           `<td>${esc(vb) || '<span style="color:var(--muted)">—</span>'}</td></tr>`;
+      vals.map(v => `<td>${v ? esc(v) : '<span style="color:var(--muted)">—</span>'}</td>`).join('') +
+      `</tr>`;
   }).join('');
 
-  const errNote = [a.error && 'Typhoon: ' + a.error, b.error && 'Gemini: ' + b.error]
+  const errNote = res.map((r, i) => r.error && `${ENGINES[i].name}: ${r.error}`)
     .filter(Boolean).map(esc).join('<br>');
   $('cmp').innerHTML =
-    `<table><thead><tr><th>ช่อง</th><th>Typhoon<br><span style="font-weight:400">รันเองได้</span></th>` +
-    `<th>Gemini<br><span style="font-weight:400">คลาวด์</span></th></tr></thead><tbody>${rows}</tbody></table>` +
+    `<div class="cmp-scroll"><table><thead><tr><th>ช่อง</th>` +
+    ENGINES.map(e => `<th>${esc(e.name)}<br><span style="font-weight:400">${esc(e.note)}</span></th>`).join('') +
+    `</tr></thead><tbody>${rows}</tbody></table></div>` +
     (errNote ? `<p class="cmp-note"><span class="badge low">ผิดพลาด</span> ${errNote}</p>` : '') +
-    `<p class="cmp-note">${nDiff ? `ต่างกัน <strong>${nDiff}</strong> ช่อง (แถบสีน้ำเงิน) — เทียบกับปกจริงในมือ แล้วเลือกฝั่งที่ถูก` : 'อ่านได้ตรงกันทุกช่อง'}</p>` +
+    `<p class="cmp-note">${nDiff
+      ? `ต่างกัน <strong>${nDiff}</strong> ช่อง (แถบสีน้ำเงิน) — เทียบกับปกจริงในมือ แล้วเลือกโมเดลที่อ่านถูก`
+      : 'ทั้ง 3 โมเดลอ่านได้ตรงกันทุกช่อง'}</p>` +
     `<div class="cmp-foot">` +
-    `<button class="btn ghost sm" id="cmp-use-a">ใช้ผล Typhoon</button>` +
-    `<button class="btn sm" id="cmp-use-b">ใช้ผล Gemini</button></div>`;
+    ENGINES.map((e, i) => `<button class="btn ${i === 1 ? '' : 'ghost'} sm" data-use="${i}">ใช้ผล ${esc(e.name)}</button>`).join('') +
+    `</div>`;
   $('cmp').hidden = false;
-  $('ai-msg').innerHTML = `อ่านครบ 2 โมเดลแล้ว — เลือกฝั่งที่ตรงกับปกจริง`;
-  $('cmp-use-a').addEventListener('click', () => { applyRead(a); toast('เติมด้วยผลของ Typhoon'); });
-  $('cmp-use-b').addEventListener('click', () => { applyRead(b); toast('เติมด้วยผลของ Gemini'); });
+  $('ai-msg').innerHTML = `อ่านครบ ${ENGINES.length} โมเดลแล้ว — เลือกตัวที่ตรงกับปกจริง`;
+  $('cmp').querySelectorAll('[data-use]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = +btn.dataset.use;
+      applyRead(res[i]);
+      toast('เติมด้วยผลของ ' + ENGINES[i].name);
+    });
+  });
 });
 
 $('btn-save').addEventListener('click', async () => {
