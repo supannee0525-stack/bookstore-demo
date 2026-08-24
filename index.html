@@ -919,7 +919,8 @@ $('btn-ai').addEventListener('click', async () => {
   const label = {high: 'มั่นใจสูง', medium: 'มั่นใจกลาง', low: 'มั่นใจต่ำ'}[conf] || conf;
   // ชื่อคน/สำนักพิมพ์ AI พลาดวรรณยุกต์บ่อยสุด — ทำเครื่องหมายให้พนักงานเห็นชัดว่าต้องตรวจ
   document.querySelectorAll('.needs-check').forEach(el => el.classList.remove('needs-check'));
-  const FIELD = {author: 'f-author', translator: 'f-translator', publisher: 'f-pub'};
+  const FIELD = {author: 'f-author', translator: 'f-translator',
+                 publisher: 'f-pub', category: 'f-category'};
   (r.needs_check || []).forEach(k => FIELD[k] && $(FIELD[k]).classList.add('needs-check'));
   const warn = (r.needs_check || []).length
     ? '<br><span class="badge low">ต้องตรวจ</span> ชื่อคนและสำนักพิมพ์ — AI พลาดวรรณยุกต์/ตัวสะกดไทยได้ ถ้าเพี้ยนลูกค้าจะค้นหาไม่เจอ'

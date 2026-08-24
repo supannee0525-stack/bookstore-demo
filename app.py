@@ -439,6 +439,19 @@ def api_ai_read(images, media_type):
         data["cover_price"] = "".join(c for c in data["cover_price"] if c.isdigit() or c == ".")
     if isinstance(data.get("edition"), str):
         data["edition"] = "".join(c for c in data["edition"] if c.isdigit())
+    # ตัดคำกำกับตำแหน่งที่ติดมากับชื่อคน (เช่น "วิไลรัตน์ เอมเอี่ยม แปล" -> ชื่อล้วน)
+    for fld, marks in (("translator", ("แปลโดย", "ผู้แปล", "แปล", "Translated by", "Translator")),
+                       ("author", ("เขียนโดย", "ผู้เขียน", "ประพันธ์โดย", "Written by", "Author"))):
+        v = (data.get(fld) or "").strip()
+        if not v:
+            continue
+        for m in marks:
+            if v.startswith(m):
+                v = v[len(m):]
+            if v.endswith(m):
+                v = v[: -len(m)]
+        data[fld] = v.strip(" :·-–—\t")
+
     # กันเหนียว: บางครั้งโมเดลเอาชื่อ 2 ภาษามาต่อกันในช่อง title — ตัดส่วนที่ซ้ำกับ title_alt ออก
     ti, alt = (data.get("title") or "").strip(), (data.get("title_alt") or "").strip()
     if ti and alt and len(alt) >= 3 and alt in ti and ti != alt:
@@ -456,7 +469,8 @@ def api_ai_read(images, media_type):
         # ช่องที่วัดแล้วว่า AI พลาดบ่อยสุด = ชื่อคน/สำนักพิมพ์ (วรรณยุกต์ไทยเพี้ยน)
         # ส่วนตัวเลข (ปี/ราคา) ทดสอบแล้วแม่นทุกครั้ง จึงไม่ต้อง flag
         # สะกดเพี้ยนแม้ตัวเดียวทำให้ลูกค้าค้นหาไม่เจอเล่มนั้น จึงต้องให้คนยืนยันก่อนบันทึก
-        "needs_check": [k for k in ("author", "translator", "publisher") if data.get(k)],
+        "needs_check": [k for k in ("author", "translator", "publisher", "category")
+                        if data.get(k)],
         "usage": {   # รวมทุกรอบ OCR + รอบแยกช่องข้อมูล
             "in": in_tok + (u2.get("prompt_tokens") or 0),
             "out": out_tok + (u2.get("completion_tokens") or 0),
