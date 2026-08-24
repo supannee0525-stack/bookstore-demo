@@ -512,6 +512,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             return self._send(200, (BASE / "index.html").read_text(encoding="utf-8"),
                               "text/html; charset=utf-8")
+        if path == "/zxing.min.js":
+            # ไลบรารีอ่านบาร์โค้ดจากกล้อง — เสิร์ฟจากเครื่องเราเอง ไม่พึ่ง CDN ภายนอก
+            return self._send(200, (BASE / "zxing.min.js").read_bytes(),
+                              "application/javascript; charset=utf-8")
         if path == "/api/search":
             return self._send(200, api_search(query.get("q")))
         if path == "/api/lookup":

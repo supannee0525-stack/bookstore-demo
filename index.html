@@ -210,6 +210,21 @@ th{font-size:.75rem;color:var(--muted);font-weight:500}
 td.num{text-align:right}
 .scroll-x{overflow-x:auto}
 
+/* barcode scanner */
+#scanner{
+  margin-top:10px;position:relative;
+  border:1px solid var(--line);border-radius:var(--r-md);
+  overflow:hidden;background:#000;
+}
+#scan-video{width:100%;max-height:280px;object-fit:cover;display:block}
+.scan-frame{
+  position:absolute;left:12%;right:12%;top:50%;transform:translateY(-50%);
+  height:26%;border:2px solid var(--accent);border-radius:8px;
+  box-shadow:0 0 0 100vmax rgba(0,0,0,.35);
+  pointer-events:none;
+}
+#btn-scan-stop{position:absolute;right:10px;bottom:10px;z-index:2}
+
 /* AI box */
 .aibox{border:1px dashed var(--line);border-radius:11px;padding:12px;background:var(--panel-2);margin-bottom:12px}
 .aibox p{margin:0 0 8px;font-size:.85rem;color:var(--muted)}
@@ -323,6 +338,14 @@ td.num{text-align:right}
       <div class="row">
         <input id="isbn" class="mono" placeholder="978..." autocomplete="off" inputmode="numeric">
         <button class="btn ghost" style="flex:none" id="btn-lookup">ค้นหา</button>
+      </div>
+      <button class="btn sm" id="btn-scan" style="margin-top:8px;width:100%">
+        <span id="scan-icon">📷</span> สแกนบาร์โค้ดด้วยกล้อง
+      </button>
+      <div id="scanner" hidden>
+        <video id="scan-video" playsinline muted></video>
+        <div class="scan-frame" aria-hidden="true"></div>
+        <button class="btn ghost sm" id="btn-scan-stop">ปิดกล้อง</button>
       </div>
       <div id="lookup-msg" class="hint" style="margin:8px 0 0"></div>
     </div>
@@ -449,6 +472,8 @@ document.querySelectorAll('nav button').forEach(b => {
     ['search','stockin','buyback','stats'].forEach(t =>
       $('tab-' + t).hidden = (t !== b.dataset.tab));
     if (b.dataset.tab === 'stats') loadStats();
+    // ปิดกล้องถ้าออกจากแท็บลงสต็อก ไม่ให้ค้างทำงานเบื้องหลัง
+    if (b.dataset.tab !== 'stockin' && typeof stopScan === 'function') stopScan();
     window.scrollTo(0, 0);
   });
 });
@@ -576,6 +601,69 @@ bindGrades('grades', g => { grade = g; recalcPrice(); });
 $('f-cover').addEventListener('input', recalcPrice);
 
 try { $('f-shelf').value = localStorage.getItem('lastShelf') || ''; } catch (e) {}
+
+/* ---------- สแกนบาร์โค้ดด้วยกล้องมือถือ ---------- */
+let zxingReader = null, zxingControls = null, zxingLoading = false;
+
+function loadZxing() {
+  // โหลดไลบรารีตอนกดใช้ครั้งแรกเท่านั้น ไม่ถ่วงเวลาโหลดหน้าแรก
+  if (window.ZXingBrowser) return Promise.resolve();
+  if (zxingLoading) return zxingLoading;
+  zxingLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'zxing.min.js';
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('โหลดตัวอ่านบาร์โค้ดไม่ได้'));
+    document.head.appendChild(s);
+  });
+  return zxingLoading;
+}
+
+async function startScan() {
+  const msg = $('lookup-msg');
+  $('btn-scan').disabled = true;
+  msg.innerHTML = '<span class="spin"></span> กำลังเปิดกล้อง...';
+  try {
+    await loadZxing();
+    const { BrowserMultiFormatReader } = window.ZXingBrowser;
+    zxingReader = new BrowserMultiFormatReader();
+    $('scanner').hidden = false;
+    zxingControls = await zxingReader.decodeFromConstraints(
+      {video: {facingMode: {ideal: 'environment'}}},
+      $('scan-video'),
+      (result, err) => {
+        if (!result) return;
+        const code = String(result.getText() || '').trim();
+        if (!/^\d{8,14}$/.test(code)) return;  // รับเฉพาะบาร์โค้ดตัวเลข (EAN/ISBN)
+        stopScan();
+        $('isbn').value = code;
+        msg.innerHTML = '<span class="badge high">สแกนได้</span> <span class="mono">' + esc(code) + '</span> — กำลังค้นหา...';
+        if (navigator.vibrate) navigator.vibrate(60);
+        $('btn-lookup').click();
+      }
+    );
+    msg.innerHTML = 'เล็งบาร์โค้ดให้อยู่ในกรอบ ระบบจะอ่านให้เอง';
+  } catch (e) {
+    $('scanner').hidden = true;
+    const why = (e && e.name === 'NotAllowedError')
+      ? 'ไม่ได้รับอนุญาตให้ใช้กล้อง — กดอนุญาตในเบราว์เซอร์แล้วลองอีกครั้ง'
+      : (e && e.message) || 'เปิดกล้องไม่ได้';
+    msg.innerHTML = '<span class="badge low">เปิดกล้องไม่ได้</span> ' + esc(why) + ' — พิมพ์ ISBN เองได้';
+  }
+  $('btn-scan').disabled = false;
+}
+
+function stopScan() {
+  try { if (zxingControls) zxingControls.stop(); } catch (e) {}
+  try { if (zxingReader) zxingReader.reset(); } catch (e) {}
+  zxingControls = null;
+  $('scanner').hidden = true;
+}
+
+$('btn-scan').addEventListener('click', () => {
+  if ($('scanner').hidden) startScan(); else stopScan();
+});
+$('btn-scan-stop').addEventListener('click', stopScan);
 
 $('btn-lookup').addEventListener('click', async () => {
   const isbn = $('isbn').value.trim();
