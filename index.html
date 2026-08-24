@@ -229,6 +229,31 @@ td.num{text-align:right}
 .aibox{border:1px dashed var(--line);border-radius:11px;padding:12px;background:var(--panel-2);margin-bottom:12px}
 .aibox p{margin:0 0 8px;font-size:.85rem;color:var(--muted)}
 .preview{max-width:130px;border-radius:8px;display:block;margin:8px 0}
+
+/* ช่องถ่ายรูป 3 ช่อง: ปกหน้า / ปกหลัง / หน้าแรก */
+.shots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.shot-slot{
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;aspect-ratio:3/4;cursor:pointer;margin:0;
+  border:1px dashed var(--line);border-radius:var(--r-sm);background:var(--panel);
+  overflow:hidden;transition:border-color var(--dur) var(--ease);
+}
+.shot-slot:hover{border-color:var(--accent)}
+.shot-slot.filled{border-style:solid;border-color:var(--accent)}
+.slot-name{
+  font-size:.72rem;font-weight:600;color:var(--muted);z-index:2;
+  background:var(--panel);padding:1px 6px;border-radius:5px;
+}
+.shot-slot.filled .slot-name{position:absolute;top:5px;left:5px;box-shadow:var(--shadow-sm)}
+.slot-hint{font-size:.66rem;color:var(--muted);z-index:2}
+.shot-slot.filled .slot-hint{display:none}
+.slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#ocr-raw summary{font-size:.8rem;color:var(--accent);cursor:pointer}
+#ocr-raw pre{
+  white-space:pre-wrap;word-break:break-word;font-size:.75rem;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+  padding:8px;margin:6px 0 0;max-height:220px;overflow:auto;
+}
 .badge{font-size:.72rem;padding:2px 7px;border-radius:6px;font-weight:600}
 .badge.high{color:var(--gA);background:var(--gA-bg)}
 .badge.medium{color:var(--gC);background:var(--gC-bg)}
@@ -351,11 +376,37 @@ td.num{text-align:right}
     </div>
 
     <div class="aibox">
-      <p><strong>2. ไม่มีบาร์โค้ด?</strong> ถ่ายรูปปกให้ AI อ่านข้อมูลออกมาให้ — ใช้กับหนังสือเก่าก่อนยุค ISBN</p>
-      <input type="file" id="cover" accept="image/*" capture="environment">
-      <img id="preview" class="preview" hidden alt="ปกที่เลือก">
-      <button class="btn sm" id="btn-ai" disabled style="margin-top:6px">ให้ AI อ่านปก</button>
+      <p><strong>2. ไม่มีบาร์โค้ด?</strong> ถ่ายรูปให้ AI อ่านข้อมูลออกมาให้ — ถ่ายได้ถึง 3 รูป
+        ยิ่งครบยิ่งได้ข้อมูลครบ (เนื้อเรื่องย่อมักอยู่ปกหลัง · ปีพิมพ์กับราคามักอยู่หน้าแรก)</p>
+      <div class="shots">
+        <label class="shot-slot" for="cover-front">
+          <span class="slot-name">ปกหน้า</span>
+          <img class="slot-img" hidden alt="">
+          <span class="slot-hint">แตะเพื่อถ่าย</span>
+          <input type="file" id="cover-front" data-slot="front" accept="image/*" capture="environment" hidden>
+        </label>
+        <label class="shot-slot" for="cover-back">
+          <span class="slot-name">ปกหลัง</span>
+          <img class="slot-img" hidden alt="">
+          <span class="slot-hint">แตะเพื่อถ่าย</span>
+          <input type="file" id="cover-back" data-slot="back" accept="image/*" capture="environment" hidden>
+        </label>
+        <label class="shot-slot" for="cover-inside">
+          <span class="slot-name">หน้าแรก</span>
+          <img class="slot-img" hidden alt="">
+          <span class="slot-hint">แตะเพื่อถ่าย</span>
+          <input type="file" id="cover-inside" data-slot="inside" accept="image/*" capture="environment" hidden>
+        </label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn sm" id="btn-ai" disabled>ให้ AI อ่าน</button>
+        <button class="btn ghost sm" id="btn-clear-shots" style="flex:none">ล้างรูป</button>
+      </div>
       <div id="ai-msg" class="hint" style="margin:8px 0 0"></div>
+      <details id="ocr-raw" hidden style="margin-top:8px">
+        <summary>ดูข้อความที่ AI อ่านได้จากแต่ละรูป</summary>
+        <pre id="ocr-raw-body"></pre>
+      </details>
     </div>
 
     <div class="field"><label for="f-title">ชื่อหนังสือ *</label><input id="f-title"></div>
@@ -685,47 +736,74 @@ $('btn-lookup').addEventListener('click', async () => {
   }
 });
 
-let coverB64 = null, coverType = null;
-$('cover').addEventListener('change', e => {
-  const f = e.target.files[0];
-  if (!f) return;
-  const fr = new FileReader();
-  fr.onload = () => {
-    $('preview').src = fr.result; $('preview').hidden = false;
-    // ปรับด้านยาวเป็น ~1800px ก่อนส่งให้ AI — ทดสอบแล้วช่วยให้อ่านภาษาไทยแม่นขึ้นจริง
-    // (ภาพเล็กเกินทำให้วรรณยุกต์หาย ภาพใหญ่เกินก็เปลืองค่า token เปล่าๆ)
+/* รูป 3 ช่อง: ปกหน้า / ปกหลัง / หน้าแรก — เก็บเป็น base64 ที่ย่อแล้ว */
+const SLOT_LABEL = {front: 'ปกหน้า', back: 'ปกหลัง', inside: 'หน้าแรก'};
+let shots = {};   // {front: b64, back: b64, inside: b64}
+
+function shotCount() { return Object.keys(shots).length; }
+
+// ย่อด้านยาวเป็น ~1800px ก่อนส่งให้ AI — ทดสอบแล้วช่วยให้อ่านภาษาไทยแม่นขึ้นจริง
+// (ภาพเล็กเกินทำให้วรรณยุกต์หาย ภาพใหญ่เกินก็เปลืองค่า token เปล่าๆ)
+function resizeToB64(dataUrl, fallbackB64) {
+  return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
       const TARGET = 1800;
-      const scale = TARGET / Math.max(img.width, img.height);
+      const scale = Math.min(1, TARGET / Math.max(img.width, img.height));
       const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
       try {
         const c = document.createElement('canvas');
         c.width = w; c.height = h;
         c.getContext('2d').drawImage(img, 0, 0, w, h);
-        coverB64 = c.toDataURL('image/jpeg', 0.92).split(',')[1];
-        coverType = 'image/jpeg';
+        resolve(c.toDataURL('image/jpeg', 0.92).split(',')[1]);
       } catch (err) {
-        coverB64 = fr.result.split(',')[1];       // ย่อไม่ได้ก็ส่งภาพเดิมไป
-        coverType = f.type || 'image/jpeg';
+        resolve(fallbackB64);      // ย่อไม่ได้ก็ส่งภาพเดิมไป
       }
-      $('btn-ai').disabled = false;
     };
-    img.onerror = () => {
-      coverB64 = fr.result.split(',')[1];
-      coverType = f.type || 'image/jpeg';
-      $('btn-ai').disabled = false;
+    img.onerror = () => resolve(fallbackB64);
+    img.src = dataUrl;
+  });
+}
+
+document.querySelectorAll('.shot-slot input[type=file]').forEach(inp => {
+  inp.addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const slot = inp.dataset.slot;
+    const box = inp.closest('.shot-slot');
+    const fr = new FileReader();
+    fr.onload = async () => {
+      const imgEl = box.querySelector('.slot-img');
+      imgEl.src = fr.result; imgEl.hidden = false;
+      box.classList.add('filled');
+      shots[slot] = await resizeToB64(fr.result, fr.result.split(',')[1]);
+      $('btn-ai').disabled = shotCount() === 0;
+      $('ai-msg').textContent = `เลือกแล้ว ${shotCount()} รูป — กด "ให้ AI อ่าน" ได้เลย`;
     };
-    img.src = fr.result;
-  };
-  fr.readAsDataURL(f);
+    fr.readAsDataURL(f);
+  });
+});
+
+$('btn-clear-shots').addEventListener('click', () => {
+  shots = {};
+  document.querySelectorAll('.shot-slot').forEach(box => {
+    box.classList.remove('filled');
+    const im = box.querySelector('.slot-img');
+    im.hidden = true; im.removeAttribute('src');
+    box.querySelector('input[type=file]').value = '';
+  });
+  $('btn-ai').disabled = true;
+  $('ai-msg').textContent = '';
+  $('ocr-raw').hidden = true;
 });
 
 $('btn-ai').addEventListener('click', async () => {
-  if (!coverB64) return;
+  if (shotCount() === 0) return;
   $('btn-ai').disabled = true;
-  $('ai-msg').innerHTML = '<span class="spin"></span> AI กำลังอ่านปก...';
-  const r = await post('ai-read', {image_b64: coverB64, media_type: coverType});
+  const n = shotCount();
+  $('ai-msg').innerHTML = `<span class="spin"></span> AI กำลังอ่าน ${n} รูป...`;
+  const images = Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]}));
+  const r = await post('ai-read', {images: images, media_type: 'image/jpeg'});
   $('btn-ai').disabled = false;
   if (r.error) { $('ai-msg').innerHTML = '<span class="badge low">ผิดพลาด</span> ' + esc(r.error); return; }
   const d = r.extracted || {};
@@ -750,6 +828,16 @@ $('btn-ai').addEventListener('click', async () => {
     `AI เติมข้อมูลให้แล้ว — <strong>ตรวจก่อนบันทึกทุกครั้ง</strong>` +
     (r.usage ? ` <span class="mono" style="font-size:.75rem">(${r.usage.in}+${r.usage.out} tokens)</span>` : '') +
     warn;
+
+  // โชว์ข้อความดิบที่ OCR อ่านได้จากแต่ละรูป ให้พนักงานเทียบกับปกจริงได้
+  const parts = r.raw_by_image || (r.raw_text ? [{label: 'รูปที่ถ่าย', text: r.raw_text}] : []);
+  if (parts.length) {
+    $('ocr-raw-body').textContent = parts
+      .map(p => `[${p.label}]\n${(p.text || '(อ่านไม่ได้)').trim()}`).join('\n\n');
+    $('ocr-raw').hidden = false;
+  } else {
+    $('ocr-raw').hidden = true;
+  }
 });
 
 $('btn-save').addEventListener('click', async () => {
@@ -761,7 +849,7 @@ $('btn-save').addEventListener('click', async () => {
     cover_price: $('f-cover').value, grade,
     price: $('f-price').value, cost: Math.round(($('f-price').value || 0) * 0.4),
     shelf: $('f-shelf').value.trim().toUpperCase(),
-    source: foundTitleId ? 'isbn' : (coverB64 ? 'ai_cover' : 'manual')
+    source: foundTitleId ? 'isbn' : (shotCount() > 0 ? 'ai_cover' : 'manual')
   };
   if (!payload.title) { toast('ต้องมีชื่อหนังสือ', 'error'); return; }
   if (!payload.shelf) { toast('ต้องระบุชั้นวาง', 'error'); return; }
@@ -772,9 +860,9 @@ $('btn-save').addEventListener('click', async () => {
   try { localStorage.setItem('lastShelf', payload.shelf); } catch (e) {}
   toast(`บันทึก "${payload.title}" เกรด ${grade} ${baht(payload.price)} ชั้น ${payload.shelf}`);
   ['isbn','f-title','f-author','f-pub','f-year','f-cover','f-syn','f-price'].forEach(i => $(i).value = '');
-  $('lookup-msg').textContent = ''; $('ai-msg').textContent = '';
-  $('preview').hidden = true; $('btn-ai').disabled = true;
-  coverB64 = null; foundTitleId = null; $('cover').value = '';
+  $('lookup-msg').textContent = '';
+  foundTitleId = null;
+  $('btn-clear-shots').click();   // ล้างรูปทั้ง 3 ช่อง + ข้อความ + panel OCR
 });
 
 /* ---------- รับซื้อ ---------- */

@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -262,50 +263,78 @@ def typhoon_post(body, timeout=120):
     return json.load(urllib.request.urlopen(req, timeout=timeout))
 
 
-def api_ai_read(image_b64, media_type):
-    """อ่านปกหนังสือด้วย Typhoon 2 ขั้น: OCR ถอดข้อความ -> แยกเป็นช่องข้อมูล
-
-    Typhoon OCR เป็น OCR ล้วน (ไม่แยกช่องให้) จึงต้องมีขั้นที่ 2
-    ทดสอบแล้วแม่นเท่า GPT-4o (9/10) และตัวเลขถูก 100%
-    """
-    # ขั้นที่ 1 — OCR
-    try:
-        r1 = typhoon_post({
-            "model": OCR_MODEL,
-            "max_tokens": 4096,
-            "temperature": 0.1,
-            "top_p": 0.6,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": OCR_PROMPT},
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:{media_type};base64,{image_b64}"}},
-                ],
-            }],
-        })
-    except Exception as exc:
-        return {"error": f"เรียก Typhoon OCR ไม่สำเร็จ: {exc}"}
-
-    raw = r1["choices"][0]["message"]["content"].strip()
-    if raw.startswith("{"):  # เวอร์ชันเก่าคืน JSON ที่มีคีย์ natural_text
+def _ocr_one(image_b64, media_type):
+    """ขั้นที่ 1 — ให้ Typhoon OCR ถอดข้อความจากภาพเดียว คืน (text, usage)"""
+    r = typhoon_post({
+        "model": OCR_MODEL,
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "top_p": 0.6,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": OCR_PROMPT},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:{media_type};base64,{image_b64}"}},
+            ],
+        }],
+    })
+    txt = (r["choices"][0]["message"].get("content") or "").strip()
+    if txt.startswith("{"):  # เวอร์ชันเก่าคืน JSON ที่มีคีย์ natural_text
         try:
-            raw = json.loads(raw).get("natural_text", raw)
+            txt = json.loads(txt).get("natural_text", txt)
         except json.JSONDecodeError:
             pass
-    if not raw:
-        return {"error": "OCR อ่านข้อความจากภาพนี้ไม่ได้ — ลองถ่ายใหม่ให้ชัดขึ้น"}
+    return txt, r.get("usage", {})
 
-    # ขั้นที่ 2 — แยกช่องข้อมูลจากข้อความที่ได้
+
+def api_ai_read(images, media_type):
+    """อ่านหนังสือด้วย Typhoon 2 ขั้น: OCR ทุกรูป -> รวมข้อความ -> แยกเป็นช่องข้อมูล
+
+    images = [{"label": "ปกหน้า", "image_b64": "..."}, ...] รับได้หลายรูป
+    (ปกหน้า/ปกหลัง/หน้าแรก) เพราะข้อมูลกระจายกันอยู่ — เนื้อเรื่องย่อมักอยู่ปกหลัง
+    ส่วนปีพิมพ์กับราคามักอยู่หน้าแรก
+
+    Typhoon OCR เป็น OCR ล้วน (ไม่แยกช่องให้) จึงต้องมีขั้นที่ 2
+    """
+    if not images:
+        return {"error": "ไม่มีภาพ"}
+
+    # ขั้นที่ 1 — OCR ทุกรูป
+    raw_by_image, in_tok, out_tok = [], 0, 0
+    for i, im in enumerate(images[:3]):  # จำกัด 3 รูปต่อเล่ม
+        b64 = im.get("image_b64") or ""
+        if not b64:
+            continue
+        label = im.get("label") or f"รูปที่ {i + 1}"
+        try:
+            txt, u = _ocr_one(b64, im.get("media_type") or media_type)
+        except Exception as exc:
+            raw_by_image.append({"label": label, "text": "", "error": str(exc)})
+            continue
+        in_tok += u.get("prompt_tokens") or 0
+        out_tok += u.get("completion_tokens") or 0
+        raw_by_image.append({"label": label, "text": txt})
+        if i < len(images) - 1:
+            time.sleep(0.6)  # เคารพ rate limit ของ Typhoon (2 req/s)
+
+    combined = "\n\n".join(f"[{p['label']}]\n{p['text']}"
+                           for p in raw_by_image if p.get("text"))
+    if not combined.strip():
+        return {"error": "OCR อ่านข้อความจากภาพไม่ได้ — ลองถ่ายใหม่ให้ชัดขึ้น",
+                "raw_by_image": raw_by_image}
+
+    # ขั้นที่ 2 — แยกช่องข้อมูลจากข้อความที่รวมได้
     try:
         r2 = typhoon_post({
             "model": TEXT_MODEL,
             "max_tokens": 800,
             "temperature": 0,
-            "messages": [{"role": "user", "content": FIELD_PROMPT + raw}],
+            "messages": [{"role": "user", "content": FIELD_PROMPT + combined}],
         })
     except Exception as exc:
-        return {"error": f"แยกช่องข้อมูลไม่สำเร็จ: {exc}", "raw_text": raw}
+        return {"error": f"แยกช่องข้อมูลไม่สำเร็จ: {exc}",
+                "raw_text": combined, "raw_by_image": raw_by_image}
 
     out = r2["choices"][0]["message"]["content"].strip()
     if out.startswith("```"):
@@ -317,7 +346,8 @@ def api_ai_read(image_b64, media_type):
     try:
         data = json.loads(out)
     except json.JSONDecodeError:
-        return {"error": "AI ตอบมาไม่ใช่ JSON", "raw": out[:400], "raw_text": raw}
+        return {"error": "AI ตอบมาไม่ใช่ JSON", "raw": out[:400],
+                "raw_text": combined, "raw_by_image": raw_by_image}
 
     # เผื่อโมเดลคืนเลขไทย
     for k in ("year", "cover_price", "isbn"):
@@ -330,17 +360,18 @@ def api_ai_read(image_b64, media_type):
         data["cover_price"] = "".join(c for c in data["cover_price"] if c.isdigit() or c == ".")
     data.setdefault("confidence", "medium")
 
-    u1, u2 = r1.get("usage", {}), r2.get("usage", {})
+    u2 = r2.get("usage", {})
     return {
         "extracted": data,
-        "raw_text": raw,  # โชว์ให้พนักงานเทียบได้ว่า OCR อ่านอะไรมา
+        "raw_text": combined,              # ข้อความรวมทุกรูป
+        "raw_by_image": raw_by_image,      # แยกตามรูป ให้พนักงานเทียบกับปกจริงได้
         # ช่องที่วัดแล้วว่า AI พลาดบ่อยสุด = ชื่อคน/สำนักพิมพ์ (วรรณยุกต์ไทยเพี้ยน)
         # ส่วนตัวเลข (ปี/ราคา) ทดสอบแล้วแม่นทุกครั้ง จึงไม่ต้อง flag
         # สะกดเพี้ยนแม้ตัวเดียวทำให้ลูกค้าค้นหาไม่เจอเล่มนั้น จึงต้องให้คนยืนยันก่อนบันทึก
         "needs_check": [k for k in ("author", "publisher") if data.get(k)],
-        "usage": {
-            "in": (u1.get("prompt_tokens") or 0) + (u2.get("prompt_tokens") or 0),
-            "out": (u1.get("completion_tokens") or 0) + (u2.get("completion_tokens") or 0),
+        "usage": {   # รวมทุกรอบ OCR + รอบแยกช่องข้อมูล
+            "in": in_tok + (u2.get("prompt_tokens") or 0),
+            "out": out_tok + (u2.get("completion_tokens") or 0),
         },
     }
 
@@ -671,10 +702,17 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0].rstrip("/") or "/"
         p = self._read_json()
         if path == "/api/ai-read":
-            img = p.get("image_b64", "")
-            if not img:
-                return self._send(400, {"error": "ไม่มีภาพ"})
-            return self._send(200, api_ai_read(img, p.get("media_type", "image/jpeg")))
+            mt = p.get("media_type", "image/jpeg")
+            images = p.get("images")
+            if not images:
+                # รองรับรูปแบบเดิม (รูปเดียว) ไว้ด้วย
+                one = p.get("image_b64", "")
+                if not one:
+                    return self._send(400, {"error": "ไม่มีภาพ"})
+                images = [{"label": "ปกหน้า", "image_b64": one}]
+            if not isinstance(images, list):
+                return self._send(400, {"error": "รูปแบบข้อมูลภาพไม่ถูกต้อง"})
+            return self._send(200, api_ai_read(images, mt))
         if path == "/api/stockin":
             if not (p.get("title") or p.get("title_id")):
                 return self._send(400, {"error": "ต้องมีชื่อหนังสือ"})
