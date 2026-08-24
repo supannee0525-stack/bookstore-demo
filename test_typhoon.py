@@ -22,6 +22,8 @@ from pathlib import Path
 
 TYPHOON_URL = "https://api.opentyphoon.ai/v1/chat/completions"
 TYPHOON_MODEL = "typhoon-ocr"  # Typhoon OCR 1.5 (2B) — ตัวล่าสุดที่แนะนำ
+# โมเดลแชทของ Typhoon (30B แต่ active 3B แบบ MoE จึงเร็ว) — รองรับ function calling
+TYPHOON_CHAT_MODEL = "typhoon-v2.5-30b-a3b-instruct"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODEL = "gpt-4o"
 
@@ -115,23 +117,35 @@ def typhoon_ocr(path, api_key):
     return text, resp.get("usage", {}), None
 
 
-def fields_from_text(text, openai_key):
-    """ขั้นที่ 2 — แยกข้อความที่ OCR ได้ ออกเป็นช่องข้อมูล (ใช้โมเดลข้อความล้วน ไม่ต้องมองภาพ)"""
+def fields_from_text(text, api_key, engine="openai"):
+    """ขั้นที่ 2 — แยกข้อความที่ OCR ได้ ออกเป็นช่องข้อมูล (ใช้โมเดลข้อความล้วน ไม่ต้องมองภาพ)
+
+    engine="openai"  → gpt-4o-mini (เทียบเป็นฐาน)
+    engine="typhoon" → typhoon chat (ทดสอบท่อ Typhoon ล้วน = แบบที่จะรันบนเครื่องลูกค้าจริง)
+    """
+    if engine == "typhoon":
+        url, key_, model = TYPHOON_URL, api_key, TYPHOON_CHAT_MODEL
+    else:
+        url, key_, model = OPENAI_URL, api_key, "gpt-4o-mini"
     body = {
-        "model": "gpt-4o-mini",
+        "model": model,
         "max_tokens": 500,
         "temperature": 0,
         "messages": [{"role": "user", "content": FIELD_PROMPT + text}],
     }
-    resp, err = post_json(OPENAI_URL, openai_key, body)
+    resp, err = post_json(url, key_, body)
     if err:
         return None, err
     out = resp["choices"][0]["message"]["content"].strip()
+    # โมเดลบางตัวใส่ reasoning ครอบมา ตัดเอาเฉพาะก้อน JSON
     if out.startswith("```"):
         out = out.split("```")[1]
         out = out[4:] if out.lower().startswith("json") else out
+    out = out.strip()
+    if not out.startswith("{") and "{" in out:
+        out = out[out.index("{"): out.rindex("}") + 1]
     try:
-        return json.loads(out.strip()), None
+        return json.loads(out), None
     except json.JSONDecodeError:
         return None, "ตอบมาไม่ใช่ JSON: " + out[:200]
 
@@ -218,15 +232,28 @@ def main():
 
         row = {"file": path.name, "typhoon_seconds": round(dt, 1), "typhoon_text": text}
 
+        # ท่อ Typhoon ล้วน (แบบที่จะรันบนเครื่องลูกค้าจริง — ทั้ง OCR และแยกช่องเป็นโมเดลไทย)
+        tf, tferr = fields_from_text(text, tk, engine="typhoon")
+        if tferr:
+            print(f"\n  แยกช่องด้วย Typhoon ไม่สำเร็จ: {tferr}")
+        else:
+            print(f"\n-- ท่อ Typhoon ล้วน (OCR + {TYPHOON_CHAT_MODEL}) --")
+            for k in ("title", "author", "publisher", "year", "cover_price"):
+                print(f"  {k:14s}: {tf.get(k)}")
+            row["typhoon_only_fields"] = {k: tf.get(k) for k in
+                                          ("title", "author", "publisher", "year", "cover_price")}
+        time.sleep(0.6)
+
         if ok:
-            fields, ferr = fields_from_text(text, ok)
+            fields, ferr = fields_from_text(text, ok, engine="openai")
             if ferr:
                 print(f"\n  แยกช่องข้อมูลไม่สำเร็จ: {ferr}")
             else:
-                print("\n-- แยกเป็นช่องข้อมูล (Typhoon + ขั้นที่ 2) --")
-                for k, v in fields.items():
-                    print(f"  {k:14s}: {v}")
-                row["typhoon_fields"] = fields
+                print("\n-- Typhoon OCR + แยกช่องด้วย GPT-4o-mini --")
+                for k in ("title", "author", "publisher", "year", "cover_price"):
+                    print(f"  {k:14s}: {fields.get(k)}")
+                row["typhoon_fields"] = {k: fields.get(k) for k in
+                                         ("title", "author", "publisher", "year", "cover_price")}
 
             g, gerr = gpt4o_direct(path, ok)
             if gerr:
