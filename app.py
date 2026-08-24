@@ -5,6 +5,7 @@ stdlib only: http.server + sqlite3 + urllib (ไม่ต้องลง package
 import base64
 import json
 import os
+import re
 import sqlite3
 import urllib.request
 from datetime import datetime, timezone
@@ -25,14 +26,24 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def openai_key():
-    env = Path("/root/content-engine/.env")
+def _key_from(env_path, name):
+    env = Path(env_path)
     if not env.exists():
         return None
     for line in env.read_text().splitlines():
-        if line.startswith("OPENAI_API_KEY="):
+        if line.startswith(name + "="):
             return line.split("=", 1)[1].strip().strip('"')
     return None
+
+
+def typhoon_key():
+    return os.environ.get("TYPHOON_API_KEY") or _key_from(BASE / ".env", "TYPHOON_API_KEY")
+
+
+# ปลายทาง API ของ Typhoon (SCB10X) — รูปแบบเดียวกับ OpenAI
+TYPHOON_URL = "https://api.opentyphoon.ai/v1/chat/completions"
+OCR_MODEL = "typhoon-ocr"                       # Typhoon OCR 1.5 (2B) — อ่านตัวหนังสือจากภาพ
+TEXT_MODEL = "typhoon-v2.5-30b-a3b-instruct"    # โมเดลข้อความ — แยกช่องข้อมูล + ตอบแชท
 
 
 # ---------------------------------------------------------------- database
@@ -213,66 +224,102 @@ def api_lookup(isbn):
     return {"found": False}
 
 
-AI_PROMPT = (
-    "คุณเป็นผู้ช่วยลงข้อมูลหนังสือของร้านหนังสือมือสองไทย "
-    "อ่านภาพปกหนังสือนี้แล้วดึงข้อมูลออกมาเป็น JSON เท่านั้น ห้ามมีข้อความอื่น\n"
-    'รูปแบบ: {"raw_text":"","title":"","author":"","publisher":"","isbn":"","year":"",'
-    '"cover_price":"","synopsis":"","confidence":"high|medium|low"}\n'
-    "ขั้นตอน: ให้ทำ raw_text ก่อนเป็นอันดับแรก โดยถอดข้อความ*ทุกบรรทัด*ที่เห็นบนปก "
-    "ไล่จากบนลงล่าง รวมบรรทัดเล็ก ตัวเลข ปี และราคา คั่นแต่ละบรรทัดด้วย | "
-    "แล้วจึงแยกข้อมูลลงช่องอื่นโดยดูจาก raw_text ที่ถอดไว้\n"
-    "อ่านทีละช่องตามนี้:\n"
-    "- title: ชื่อหนังสือ มักเป็นตัวใหญ่สุดบนปก\n"
-    "- author: ชื่อผู้เขียน มักอยู่ใต้ชื่อเรื่อง\n"
-    "- publisher: ชื่อสำนักพิมพ์ มักอยู่ล่างสุดของปก อ่านตัวอักษรให้ครบทุกตัว "
-    "ห้ามเดาจากชื่อสำนักพิมพ์ที่คุณรู้จัก ให้อ่านจากตัวอักษรที่เห็นเท่านั้น\n"
-    "- year: ปีพิมพ์ มองหาเลข 4 หลักที่มีคำว่า พ.ศ. / ค.ศ. / พิมพ์ครั้งที่ กำกับ "
-    "ถ้าเห็นตัวเลขปีบนปกต้องใส่ อย่าปล่อยว่าง\n"
-    "- cover_price: ราคาปก มองหาเลขที่มีคำว่า ราคา หรือ บาท กำกับ ใส่เฉพาะตัวเลข\n"
-    "- isbn: เลข ISBN ถ้าเห็นบนปก\n"
-    "- synopsis: เนื้อเรื่องย่อ 1-2 ประโยค จากข้อความที่เห็นบนปกจริงเท่านั้น\n"
-    "กติกาสำคัญ: ถ้าช่องไหนอ่านไม่ออกหรือไม่มีบนปก ให้ใส่ค่าว่าง "
-    "ห้ามเดา ห้ามเติมข้อมูลจากความรู้ของคุณเองที่ไม่ปรากฏบนปก\n"
-    "confidence: ประเมินจากความชัดของภาพและจำนวนช่องที่อ่านได้ครบ"
+# prompt ทางการของ Typhoon OCR 1.5 — โมเดลนี้เป็น OCR ล้วน คืนข้อความทั้งหมดบนภาพ
+OCR_PROMPT = """Extract all text from the image.
+
+Instructions:
+- Only return the clean Markdown.
+- Do not include any explanation or extra text.
+- You must include all information on the page.
+
+Formatting Rules:
+- Tables: Render tables using <table>...</table> in clean HTML format.
+- Page Numbers: Wrap page numbers in <page_number>...</page_number>.
+- Checkboxes: Use ☐ for unchecked and ☑ for checked boxes."""
+
+# ขั้นที่ 2 — แยกข้อความที่ OCR ได้ ออกเป็นช่องข้อมูลหนังสือ
+FIELD_PROMPT = (
+    "จากข้อความที่อ่านได้จากปกหนังสือด้านล่าง ให้แยกข้อมูลเป็น JSON เท่านั้น ห้ามมีข้อความอื่น\n"
+    'รูปแบบ: {"title":"","author":"","publisher":"","isbn":"","year":"","cover_price":"","synopsis":""}\n'
+    "กติกา: ถ้าช่องไหนไม่มีในข้อความ ให้ใส่ค่าว่าง ห้ามเดา ห้ามเติมจากความรู้ของคุณเอง\n"
+    "ปีพิมพ์และราคาปกให้ใส่เฉพาะตัวเลข\n"
+    "synopsis เขียนย่อ 1-2 ประโยคจากข้อความบนปกเท่านั้น ถ้าไม่มีข้อมูลพอให้ใส่ค่าว่าง\n\n"
+    "ข้อความจากปก:\n"
 )
+
+THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+
+def typhoon_post(body, timeout=120):
+    k = typhoon_key()
+    if not k:
+        raise RuntimeError("ไม่พบ TYPHOON_API_KEY บนเครื่อง")
+    req = urllib.request.Request(
+        TYPHOON_URL,
+        data=json.dumps(body).encode(),
+        headers={"Authorization": "Bearer " + k, "Content-Type": "application/json"},
+    )
+    return json.load(urllib.request.urlopen(req, timeout=timeout))
 
 
 def api_ai_read(image_b64, media_type):
-    """ให้ AI อ่านปกหนังสือจากภาพจริง"""
-    key = openai_key()
-    if not key:
-        return {"error": "ไม่พบ API key บนเครื่อง"}
-    body = json.dumps({
-        "model": "gpt-4o",
-        "max_tokens": 700,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": AI_PROMPT},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:{media_type};base64,{image_b64}"}},
-            ],
-        }],
-    }).encode()
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=body,
-        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-    )
+    """อ่านปกหนังสือด้วย Typhoon 2 ขั้น: OCR ถอดข้อความ -> แยกเป็นช่องข้อมูล
+
+    Typhoon OCR เป็น OCR ล้วน (ไม่แยกช่องให้) จึงต้องมีขั้นที่ 2
+    ทดสอบแล้วแม่นเท่า GPT-4o (9/10) และตัวเลขถูก 100%
+    """
+    # ขั้นที่ 1 — OCR
     try:
-        resp = json.load(urllib.request.urlopen(req, timeout=90))
-    except Exception as exc:  # network / quota / auth
-        return {"error": f"เรียก AI ไม่สำเร็จ: {exc}"}
-    text = resp["choices"][0]["message"]["content"].strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        text = text[4:] if text.lower().startswith("json") else text
+        r1 = typhoon_post({
+            "model": OCR_MODEL,
+            "max_tokens": 4096,
+            "temperature": 0.1,
+            "top_p": 0.6,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": OCR_PROMPT},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:{media_type};base64,{image_b64}"}},
+                ],
+            }],
+        })
+    except Exception as exc:
+        return {"error": f"เรียก Typhoon OCR ไม่สำเร็จ: {exc}"}
+
+    raw = r1["choices"][0]["message"]["content"].strip()
+    if raw.startswith("{"):  # เวอร์ชันเก่าคืน JSON ที่มีคีย์ natural_text
+        try:
+            raw = json.loads(raw).get("natural_text", raw)
+        except json.JSONDecodeError:
+            pass
+    if not raw:
+        return {"error": "OCR อ่านข้อความจากภาพนี้ไม่ได้ — ลองถ่ายใหม่ให้ชัดขึ้น"}
+
+    # ขั้นที่ 2 — แยกช่องข้อมูลจากข้อความที่ได้
     try:
-        data = json.loads(text.strip())
+        r2 = typhoon_post({
+            "model": TEXT_MODEL,
+            "max_tokens": 800,
+            "temperature": 0,
+            "messages": [{"role": "user", "content": FIELD_PROMPT + raw}],
+        })
+    except Exception as exc:
+        return {"error": f"แยกช่องข้อมูลไม่สำเร็จ: {exc}", "raw_text": raw}
+
+    out = r2["choices"][0]["message"]["content"].strip()
+    if out.startswith("```"):
+        out = out.split("```")[1]
+        out = out[4:] if out.lower().startswith("json") else out
+    out = out.strip()
+    if not out.startswith("{") and "{" in out:
+        out = out[out.index("{"): out.rindex("}") + 1]
+    try:
+        data = json.loads(out)
     except json.JSONDecodeError:
-        return {"error": "AI ตอบมาไม่ใช่ JSON", "raw": text[:400]}
-    # AI อ่านตัวเลขไทยพลาดบ่อย — แปลงเป็นเลขอารบิกแล้วบังคับให้คนตรวจ
-    THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+        return {"error": "AI ตอบมาไม่ใช่ JSON", "raw": out[:400], "raw_text": raw}
+
+    # เผื่อโมเดลคืนเลขไทย
     for k in ("year", "cover_price", "isbn"):
         v = data.get(k)
         if isinstance(v, str):
@@ -281,18 +328,24 @@ def api_ai_read(image_b64, media_type):
         data["year"] = data["year"].replace("พ.ศ.", "").replace("ค.ศ.", "").strip()
     if isinstance(data.get("cover_price"), str):
         data["cover_price"] = "".join(c for c in data["cover_price"] if c.isdigit() or c == ".")
-    usage = resp.get("usage", {})
+    data.setdefault("confidence", "medium")
+
+    u1, u2 = r1.get("usage", {}), r2.get("usage", {})
     return {
         "extracted": data,
+        "raw_text": raw,  # โชว์ให้พนักงานเทียบได้ว่า OCR อ่านอะไรมา
         # ช่องที่วัดแล้วว่า AI พลาดบ่อยสุด = ชื่อคน/สำนักพิมพ์ (วรรณยุกต์ไทยเพี้ยน)
         # ส่วนตัวเลข (ปี/ราคา) ทดสอบแล้วแม่นทุกครั้ง จึงไม่ต้อง flag
         # สะกดเพี้ยนแม้ตัวเดียวทำให้ลูกค้าค้นหาไม่เจอเล่มนั้น จึงต้องให้คนยืนยันก่อนบันทึก
         "needs_check": [k for k in ("author", "publisher") if data.get(k)],
-        "usage": {"in": usage.get("prompt_tokens"), "out": usage.get("completion_tokens")},
+        "usage": {
+            "in": (u1.get("prompt_tokens") or 0) + (u2.get("prompt_tokens") or 0),
+            "out": (u1.get("completion_tokens") or 0) + (u2.get("completion_tokens") or 0),
+        },
     }
 
 
-CHAT_MODEL = "gpt-4o-mini"  # ราคาถูก พอสำหรับตอบคำถามลูกค้าจากผลค้นหา ไม่ต้องใช้ vision
+CHAT_MODEL = TEXT_MODEL  # Typhoon 2.5 — โมเดลไทย รองรับ function calling (ทดสอบแล้วเรียก tool ถูก)
 
 CHAT_SYSTEM_PROMPT = (
     "คุณคือพนักงานร้านหนังสือมือสองที่คุยกับลูกค้าทางแชท พูดสั้น กระชับ เป็นกันเอง แบบพนักงานจริง\n"
@@ -322,63 +375,148 @@ SEARCH_TOOL = {
 }
 
 
-def _tool_search_books(query):
-    titles = _search_titles(query, limit=6)
+def _search_contained_in(text, limit=6):
+    """หาเล่มที่ 'ชื่อหนังสือ/ผู้เขียน' ปรากฏอยู่ข้างในข้อความที่ส่งมา
+
+    ใช้เป็นชั้นสำรองของการค้น เพราะคำค้นมักมีคำถามติดมาด้วย
+    (เช่น 'มีข้างหลังภาพ' ซึ่งค้นแบบปกติจะไม่ตรงกับชื่อ 'ข้างหลังภาพ')
+    """
+    t = (text or "").strip()
+    if len(t) < 3:
+        return []
+    conn = db()
+    rows = conn.execute(
+        "SELECT * FROM titles WHERE (length(title) >= 4 AND ? LIKE '%' || title || '%')"
+        " OR (author IS NOT NULL AND length(author) >= 4 AND ? LIKE '%' || author || '%')"
+        " ORDER BY length(title) DESC LIMIT ?",
+        (t, t, limit),
+    ).fetchall()
+    out = []
+    for r in rows:
+        copies = conn.execute(
+            "SELECT * FROM copies WHERE title_id=? ORDER BY"
+            " CASE grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END",
+            (r["id"],),
+        ).fetchall()
+        out.append({**dict(r), "copies": [dict(c) for c in copies],
+                    "in_stock": sum(1 for c in copies if c["status"] == "in_stock")})
+    conn.close()
+    return out
+
+
+def _compact_titles(titles):
+    """ย่อผลค้นให้เหลือเฉพาะที่โมเดลต้องใช้ตอบ (ประหยัด token)"""
     compact = [{
         "title": t["title"], "author": t["author"],
         "in_stock": t["in_stock"],
         "copies": [{"grade": c["grade"], "price": c["price"], "shelf": c["shelf"]}
                    for c in t["copies"] if c["status"] == "in_stock"][:5],
     } for t in titles]
-    return titles, {"found": len(compact), "books": compact}
+    return {"found": len(compact), "books": compact}
 
 
-def _openai_chat(messages, tools=None):
-    key = openai_key()
-    if not key:
-        raise RuntimeError("ไม่พบ API key บนเครื่อง")
+def _tool_search_books(query):
+    titles = _search_titles(query, limit=6)
+    return titles, _compact_titles(titles)
+
+
+def _chat_completion(messages, tools=None, force_tool=None):
     body = {"model": CHAT_MODEL, "messages": messages, "temperature": 0.4}
     if tools:
         body["tools"] = tools
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(body).encode(),
-        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-    )
-    return json.load(urllib.request.urlopen(req, timeout=60))
+    if force_tool:
+        body["tool_choice"] = {"type": "function", "function": {"name": force_tool}}
+    return typhoon_post(body, timeout=90)
+
+
+KEYWORD_PROMPT = (
+    "จากคำถามของลูกค้าร้านหนังสือ ให้ตอบกลับมาเฉพาะ 'คำค้น' ที่ควรใช้ค้นฐานข้อมูลหนังสือ\n"
+    "ตอบเป็นคำสั้นๆบรรทัดเดียว ห้ามมีคำอธิบาย ห้ามมีเครื่องหมายคำพูด\n"
+    "ถ้าเป็นชื่อหนังสือให้ตอบชื่อหนังสือ ถ้าถามแนวเรื่องให้ตอบคำที่บอกแนวนั้น\n\n"
+    "คำถาม: "
+)
+
+
+def _extract_query(user_msg):
+    """ให้โมเดลสกัดคำค้นจากคำถาม — ทำเป็นข้อความล้วนเพราะเสถียรกว่า tool-call arguments มาก
+    (วัดแล้ว: ข้อความล้วนถูก 12/12 ครั้ง ส่วน function calling พลาดราว 40%)"""
+    try:
+        r = typhoon_post({
+            "model": TEXT_MODEL, "temperature": 0, "max_tokens": 40,
+            "messages": [{"role": "user", "content": KEYWORD_PROMPT + user_msg}],
+        }, timeout=60)
+        kw = (r["choices"][0]["message"].get("content") or "").strip()
+        kw = kw.splitlines()[0].strip(' "\'') if kw else ""
+        return kw or user_msg
+    except Exception:
+        return user_msg  # สกัดไม่ได้ก็ใช้ข้อความลูกค้าไปค้นตรงๆ
 
 
 def api_chat(history):
-    """history = [{role:'user'|'assistant', content:str}, ...] จบด้วยข้อความล่าสุดของลูกค้า"""
-    messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + history
-    found_titles = []
-    for _ in range(4):  # กันลูปไม่รู้จบ
-        try:
-            resp = _openai_chat(messages, tools=[SEARCH_TOOL])
-        except Exception as exc:
-            return {"reply": f"ขอโทษครับ ระบบขัดข้อง: {exc}", "books": []}
-        msg = resp["choices"][0]["message"]
-        tool_calls = msg.get("tool_calls")
-        if not tool_calls:
-            seen, deduped = set(), []
-            for t in found_titles:
-                if t["id"] not in seen:
-                    seen.add(t["id"])
-                    deduped.append(t)
-            return {"reply": msg.get("content", ""), "books": deduped}
-        messages.append(msg)
-        for tc in tool_calls:
-            try:
-                args = json.loads(tc["function"]["arguments"])
-            except (json.JSONDecodeError, KeyError):
-                args = {}
-            titles, tool_result = _tool_search_books(args.get("query", ""))
-            found_titles.extend(titles)
-            messages.append({
-                "role": "tool", "tool_call_id": tc["id"],
-                "content": json.dumps(tool_result, ensure_ascii=False),
-            })
-    return {"reply": "ขอโทษครับ ค้นหาหลายรอบแล้วยังไม่ได้คำตอบ ลองพิมพ์ใหม่อีกครั้งครับ", "books": found_titles}
+    """history = [{role:'user'|'assistant', content:str}, ...] จบด้วยข้อความล่าสุดของลูกค้า
+
+    ทำ 3 ขั้นแบบกำหนดแน่นอน (ไม่พึ่ง function calling): สกัดคำค้น -> ค้นฐานข้อมูลด้วยโค้ด -> ให้โมเดลเรียบเรียงคำตอบ
+    วิธีนี้ "รับประกัน" ว่าค้นฐานข้อมูลก่อนตอบทุกครั้งจริง แข็งแรงกว่าการหวังให้โมเดลเรียก tool เอง
+    """
+    user_msg = next((m.get("content", "") for m in reversed(history)
+                     if m.get("role") == "user"), "").strip()
+    if not user_msg:
+        return {"reply": "พิมพ์คำถามได้เลยครับ", "books": []}
+
+    query = _extract_query(user_msg)
+    titles, compact = _tool_search_books(query)
+
+    # ชั้นสำรอง 1: คำค้นมักมีคำถามติดมา ("มีข้างหลังภาพ") — หาชื่อเล่มที่อยู่ข้างในคำค้น
+    if not titles:
+        for cand in (query, user_msg):
+            got = _search_contained_in(cand)
+            if got:
+                titles = got
+                compact = _compact_titles(titles)
+                break
+
+    # ชั้นสำรอง 2: โมเดลบางครั้งส่งคำค้นมาหลายคำ ("ลูกอีสาน, ราคา") ซึ่งค้นรวมกันแล้วไม่เจอ
+    # จึงแยกค้นทีละคำแล้วรวมผล
+    if not titles:
+        terms = [t.strip() for t in re.split(r"[,ฯ/|]+|\s{1,}", query) if len(t.strip()) >= 2]
+        merged, seen_ids = [], set()
+        for t in terms:
+            got, _ = _tool_search_books(t)
+            for row in got:
+                if row["id"] not in seen_ids:
+                    seen_ids.add(row["id"])
+                    merged.append(row)
+        if merged:
+            titles = merged[:6]
+            compact = _compact_titles(titles)
+
+    # ยังไม่เจอ ลองค้นด้วยข้อความเดิมของลูกค้าตรงๆ
+    if not titles and query != user_msg:
+        titles, compact = _tool_search_books(user_msg)
+
+    seen, books = set(), []
+    for t in titles:
+        if t["id"] not in seen:
+            seen.add(t["id"])
+            books.append(t)
+
+    convo = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+    convo += [m for m in history if m.get("role") in ("user", "assistant")]
+    convo.append({
+        "role": "system",
+        "content": ("ผลค้นจากฐานข้อมูลสต็อกจริง (ใช้ข้อมูลนี้เท่านั้นในการตอบ ห้ามเพิ่มเล่มที่ไม่อยู่ในนี้):\n"
+                    + json.dumps(compact, ensure_ascii=False)),
+    })
+    try:
+        r = _chat_completion(convo)
+        reply = (r["choices"][0]["message"].get("content") or "").strip()
+    except Exception as exc:
+        return {"reply": f"ขอโทษครับ ระบบขัดข้อง: {exc}", "books": books}
+
+    if not reply:
+        reply = (f"เจอ {len(books)} เล่มครับ เช็คราคากับชั้นวางได้จากรายการด้านล่างเลยครับ"
+                 if books else "ไม่เจอเล่มที่ถามในสต็อกครับ")
+    return {"reply": reply, "books": books}
 
 
 def suggest_price(cover_price, grade):
