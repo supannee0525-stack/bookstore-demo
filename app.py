@@ -468,6 +468,26 @@ def api_ai_read(images, media_type, engine="typhoon"):
                         raw_by_image, in_tok, out_tok, r2.get("usage", {}))
 
 
+READ_LOG = BASE / "reads.jsonl"
+
+
+def _log_read(engine, n_images, res):
+    """เก็บผลอ่านทุกครั้งลงไฟล์ ไว้วิเคราะห์ความแม่นย้อนหลังตอนทดสอบกับปกจริง"""
+    try:
+        with READ_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "engine": engine,
+                "n_images": n_images,
+                "error": res.get("error"),
+                "extracted": res.get("extracted"),
+                "raw_text": (res.get("raw_text") or "")[:1500],
+                "usage": res.get("usage"),
+            }, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # เขียน log ไม่ได้ ไม่ควรทำให้การอ่านปกล้มไปด้วย
+
+
 def _finish_read(out, combined, raw_by_image, in_tok, out_tok, u2):
     """แกะ JSON ที่โมเดลตอบมา + ทำความสะอาดข้อมูล (ใช้ร่วมกันทั้ง Typhoon และ Gemini)"""
     out = (out or "").strip()
@@ -929,7 +949,9 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(images, list):
                 return self._send(400, {"error": "รูปแบบข้อมูลภาพไม่ถูกต้อง"})
             eng = "gemini" if p.get("engine") == "gemini" else "typhoon"
-            return self._send(200, api_ai_read(images, mt, eng))
+            res = api_ai_read(images, mt, eng)
+            _log_read(eng, len(images), res)
+            return self._send(200, res)
         if path == "/api/stockin":
             if not (p.get("title") or p.get("title_id")):
                 return self._send(400, {"error": "ต้องมีชื่อหนังสือ"})

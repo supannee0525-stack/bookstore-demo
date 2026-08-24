@@ -256,6 +256,15 @@ td.num{text-align:right}
 .slot-hint{font-size:.66rem;color:var(--muted);z-index:2}
 .shot-slot.filled .slot-hint{display:none}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+#cmp table{width:100%;border-collapse:collapse;font-size:.78rem}
+#cmp th,#cmp td{padding:7px 9px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+#cmp th{background:var(--panel-2);font-weight:600;font-size:.74rem;color:var(--muted)}
+#cmp td:first-child{color:var(--muted);white-space:nowrap;width:1%}
+#cmp tr.diff td{background:rgba(47,123,255,.07)}
+#cmp tr.diff td:first-child{color:var(--accent-2)}
+#cmp .cmp-foot{display:flex;gap:8px;padding:9px;background:var(--panel-2);flex-wrap:wrap}
+#cmp .cmp-note{padding:8px 9px;font-size:.74rem;color:var(--muted);line-height:1.5}
 .engine-pick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .eng{cursor:pointer}
 .eng input{position:absolute;opacity:0;pointer-events:none}
@@ -451,8 +460,10 @@ td.num{text-align:right}
       </div>
       <div class="row" style="margin-top:8px">
         <button class="btn sm" id="btn-ai" disabled>ให้ AI อ่าน</button>
+        <button class="btn ghost sm" id="btn-compare" disabled style="flex:none">เทียบ 2 โมเดล</button>
         <button class="btn ghost sm" id="btn-clear-shots" style="flex:none">ล้างรูป</button>
       </div>
+      <div id="cmp" hidden></div>
       <div id="ai-msg" class="hint" style="margin:8px 0 0"></div>
       <details id="ocr-raw" hidden style="margin-top:8px">
         <summary>ดูข้อความที่ AI อ่านได้จากแต่ละรูป</summary>
@@ -901,7 +912,7 @@ document.querySelectorAll('.shot-slot input[type=file]').forEach(inp => {
       imgEl.src = fr.result; imgEl.hidden = false;
       box.classList.add('filled');
       shots[slot] = await resizeToB64(fr.result, fr.result.split(',')[1]);
-      $('btn-ai').disabled = shotCount() === 0;
+      $('btn-ai').disabled = $('btn-compare').disabled = shotCount() === 0;
       $('ai-msg').textContent = `เลือกแล้ว ${shotCount()} รูป — กด "ให้ AI อ่าน" ได้เลย`;
     };
     fr.readAsDataURL(f);
@@ -916,9 +927,10 @@ $('btn-clear-shots').addEventListener('click', () => {
     im.hidden = true; im.removeAttribute('src');
     box.querySelector('input[type=file]').value = '';
   });
-  $('btn-ai').disabled = true;
+  $('btn-ai').disabled = $('btn-compare').disabled = true;
   $('ai-msg').textContent = '';
   $('ocr-raw').hidden = true;
+  $('cmp').hidden = true;
 });
 
 $('btn-ai').addEventListener('click', async () => {
@@ -932,6 +944,11 @@ $('btn-ai').addEventListener('click', async () => {
   const r = await post('ai-read', {images: images, media_type: 'image/jpeg', engine: engine});
   $('btn-ai').disabled = false;
   if (r.error) { $('ai-msg').innerHTML = '<span class="badge low">ผิดพลาด</span> ' + esc(r.error); return; }
+  $('cmp').hidden = true;
+  applyRead(r);
+});
+
+function applyRead(r) {
   const d = r.extracted || {};
   foundTitleId = null;
   if (d.title) $('f-title').value = d.title;
@@ -969,6 +986,53 @@ $('btn-ai').addEventListener('click', async () => {
   } else {
     $('ocr-raw').hidden = true;
   }
+}
+
+// เทียบ 2 โมเดลจากรูปชุดเดียวกัน — ใช้ตอนทดสอบปกจริง และตอนพรีเซนต์ให้ลูกค้าเห็นความต่าง
+const CMP_FIELDS = [
+  ['title', 'ชื่อหนังสือ'], ['title_alt', 'ชื่ออีกภาษา'], ['author', 'ผู้เขียน'],
+  ['translator', 'ผู้แปล'], ['publisher', 'สำนักพิมพ์'], ['category', 'หมวดหมู่'],
+  ['edition', 'พิมพ์ครั้งที่'], ['year', 'ปีพิมพ์'], ['isbn', 'ISBN'], ['cover_price', 'ราคาปก']
+];
+
+$('btn-compare').addEventListener('click', async () => {
+  if (shotCount() === 0) return;
+  $('btn-compare').disabled = true; $('btn-ai').disabled = true;
+  const images = Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]}));
+  const body = {images: images, media_type: 'image/jpeg'};
+  $('ai-msg').innerHTML = '<span class="spin"></span> อ่านด้วย Typhoon...';
+  const a = await post('ai-read', Object.assign({}, body, {engine: 'typhoon'}));
+  $('ai-msg').innerHTML = '<span class="spin"></span> อ่านด้วย Gemini...';
+  const b = await post('ai-read', Object.assign({}, body, {engine: 'gemini'}));
+  $('btn-compare').disabled = false; $('btn-ai').disabled = false;
+
+  const da = a.extracted || {}, db = b.extracted || {};
+  let nDiff = 0;
+  const rows = CMP_FIELDS.map(([k, th]) => {
+    const va = (da[k] == null ? '' : String(da[k])).trim();
+    const vb = (db[k] == null ? '' : String(db[k])).trim();
+    if (!va && !vb) return '';
+    const diff = va !== vb;
+    if (diff) nDiff++;
+    return `<tr class="${diff ? 'diff' : ''}"><td>${esc(th)}</td>` +
+           `<td>${esc(va) || '<span style="color:var(--muted)">—</span>'}</td>` +
+           `<td>${esc(vb) || '<span style="color:var(--muted)">—</span>'}</td></tr>`;
+  }).join('');
+
+  const errNote = [a.error && 'Typhoon: ' + a.error, b.error && 'Gemini: ' + b.error]
+    .filter(Boolean).map(esc).join('<br>');
+  $('cmp').innerHTML =
+    `<table><thead><tr><th>ช่อง</th><th>Typhoon<br><span style="font-weight:400">รันเองได้</span></th>` +
+    `<th>Gemini<br><span style="font-weight:400">คลาวด์</span></th></tr></thead><tbody>${rows}</tbody></table>` +
+    (errNote ? `<p class="cmp-note"><span class="badge low">ผิดพลาด</span> ${errNote}</p>` : '') +
+    `<p class="cmp-note">${nDiff ? `ต่างกัน <strong>${nDiff}</strong> ช่อง (แถบสีน้ำเงิน) — เทียบกับปกจริงในมือ แล้วเลือกฝั่งที่ถูก` : 'อ่านได้ตรงกันทุกช่อง'}</p>` +
+    `<div class="cmp-foot">` +
+    `<button class="btn ghost sm" id="cmp-use-a">ใช้ผล Typhoon</button>` +
+    `<button class="btn sm" id="cmp-use-b">ใช้ผล Gemini</button></div>`;
+  $('cmp').hidden = false;
+  $('ai-msg').innerHTML = `อ่านครบ 2 โมเดลแล้ว — เลือกฝั่งที่ตรงกับปกจริง`;
+  $('cmp-use-a').addEventListener('click', () => { applyRead(a); toast('เติมด้วยผลของ Typhoon'); });
+  $('cmp-use-b').addEventListener('click', () => { applyRead(b); toast('เติมด้วยผลของ Gemini'); });
 });
 
 $('btn-save').addEventListener('click', async () => {

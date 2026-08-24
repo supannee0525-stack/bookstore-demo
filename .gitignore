@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .env
 typhoon_test_result.json
+reads.jsonl
