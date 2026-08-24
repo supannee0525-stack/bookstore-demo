@@ -10,6 +10,7 @@ import os
 import re
 import sqlite3
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -630,18 +631,57 @@ def _finish_read(out, combined, raw_by_image, in_tok, out_tok, u2):
 
 CHAT_MODEL = TEXT_MODEL  # Typhoon 2.5 — โมเดลไทย รองรับ function calling (ทดสอบแล้วเรียก tool ถูก)
 
-CHAT_SYSTEM_PROMPT = (
-    "คุณคือพนักงานร้านหนังสือมือสองที่คุยกับลูกค้าทางแชท พูดสั้น กระชับ เป็นกันเอง แบบพนักงานจริง\n"
+# กติกาที่ใช้ร่วมกันทั้ง 2 โหมด — กันการแต่งข้อมูล ซึ่งเป็นความเสี่ยงใหญ่สุดของงานนี้
+_CHAT_RULES_COMMON = (
     "กติกาที่ห้ามฝ่าฝืน:\n"
-    "- ก่อนตอบคำถามที่เกี่ยวกับหนังสือ (มีไหม, ราคา, สภาพ, ชั้นวาง, แนวเรื่อง) ต้องเรียก search_books ก่อนเสมอ "
+    "- ตอบได้เฉพาะจากผลค้นฐานข้อมูลที่ระบบแนบมาให้ท้ายบทสนทนา "
     "ห้ามตอบจากความจำหรือความรู้ทั่วไปเกี่ยวกับหนังสือเล่มนั้น\n"
-    "- ห้ามบอกราคา ชั้นวาง หรือจำนวนเล่ม ที่ไม่ได้มาจากผลลัพธ์ของ search_books โดยตรง ห้ามเดาหรือแต่งขึ้นเอง\n"
-    "- ถ้าค้นแล้วไม่พบ ให้บอกลูกค้าตรงๆว่าไม่มีหรือหาไม่พบ ไม่ต้องแนะนำเล่มอื่นที่ไม่ได้อยู่ในผลค้นหา\n"
-    "- ถ้าลูกค้าถามกว้างๆ เช่นแนวเรื่อง ให้ค้นด้วยคำที่เกี่ยวข้องกับแนวนั้น แล้วสรุปให้จากที่เจอจริง\n"
-    "- **ถ้าลูกค้าถามหารีวิว/เสียงตอบรับ/คนอ่านว่าอย่างไร**: ระบบไม่ได้เก็บรีวิวไว้ ห้ามแต่งรีวิวขึ้นเอง และห้ามบอกว่า 'มีรีวิว' — ให้บอกว่าเจอเล่มนั้นในสต็อก แล้วชวนให้กดลิงก์ 'ดูรีวิวเล่มนี้ใน Google' ที่อยู่ในการ์ดหนังสือด้านล่าง\n"
-    "- ตอบเป็นข้อความล้วน ไม่ต้องแสดงรายการหนังสือซ้ำในคำตอบ (ระบบจะโชว์การ์ดหนังสือให้ลูกค้าดูเองแล้ว) "
-    "ให้พูดสรุปสั้นๆ พอ เช่น 'เจอ 2 เล่มครับ เช็คราคากับชั้นวางได้จากรายการด้านล่างเลยครับ'"
+    "- ห้ามบอกราคา สภาพ ปีพิมพ์ หรือจำนวนเล่ม ที่ไม่ได้อยู่ในผลค้น ห้ามเดาหรือแต่งขึ้นเอง\n"
+    "- ถ้าไม่พบ ให้บอกตรงๆว่าไม่มีในร้าน ห้ามแนะนำเล่มที่ไม่อยู่ในผลค้น\n"
+    "- ถ้าถูกถามหารีวิว/เสียงตอบรับ/คนอ่านว่าอย่างไร: ร้านไม่ได้เก็บรีวิวไว้ "
+    "**ห้ามแต่งรีวิวขึ้นเอง และห้ามบอกว่า 'มีรีวิว'** ให้บอกว่าช่วยหาลิงก์รีวิวให้ได้\n"
 )
+
+# โหมดลูกค้า — คุยเหมือนคนขายจริง ไม่มีการ์ด ไม่เห็นข้อมูลหลังบ้าน
+CHAT_PROMPT_CUSTOMER = (
+    "คุณคือพนักงานขายร้านหนังสือมือสองที่กำลังคุยกับลูกค้าทางแชท\n"
+    "พูดเหมือนคนจริงคุยกัน อบอุ่น เป็นกันเอง สั้นกระชับ 1-3 ประโยค ลงท้ายด้วยครับ/ค่ะ\n\n"
+    + _CHAT_RULES_COMMON +
+    "- **ตอบเป็นข้อความสนทนาล้วนเท่านั้น** ห้ามทำเป็นตาราง ห้ามใส่หัวข้อ ห้ามขึ้นบรรทัดเป็นข้อๆ "
+    "ห้ามใส่สัญลักษณ์ตกแต่งอย่าง ** หรือ - นำหน้า เขียนเป็นประโยคเล่าให้ฟังธรรมดา\n"
+    "- **ตอบเฉพาะสิ่งที่ถูกถาม ห้ามท่องข้อมูลอื่นพ่วงมาด้วย**\n"
+    "  ถามสภาพ -> บอกแต่สภาพ ('มีสภาพดีมาก 1 เล่ม กับพออ่านได้ 2 เล่มครับ')\n"
+    "  ถามปีพิมพ์ -> บอกแต่ปี ('พิมพ์ปี 2544 ครับ')\n"
+    "  ถามราคา -> บอกแต่ราคา / ถามเรื่องย่อ -> เล่าแต่เรื่องย่อ\n"
+    "  ห้ามตอบซ้ำเรื่องราคาทุกครั้งถ้าลูกค้าไม่ได้ถามราคา\n"
+    "- ถ้าลูกค้าถามต่อเนื่องโดยไม่เอ่ยชื่อเล่ม ให้เข้าใจว่ายังหมายถึงเล่มเดิมที่คุยกันอยู่\n"
+    "- **ห้ามพูดถึงข้อมูลหลังร้านเด็ดขาด** ได้แก่ รหัสชั้นวาง ต้นทุนรับซื้อ กำไร รหัสในระบบ "
+    "จำนวนสต็อกรวมของร้าน\n"
+    "  ถ้าลูกค้าถามเรื่องพวกนี้ ให้ตอบเลี่ยงสุภาพ **ประโยคเดียวแล้วหยุด** "
+    "เช่น 'เรื่องนี้เดี๋ยวพนักงานหน้าร้านช่วยดูให้ได้เลยครับ'\n"
+    "  **ห้ามบอกตำแหน่งชั้นวางใดๆ ห้ามแต่งชื่อชั้นขึ้นมาเอง** และ **ห้ามพูดว่าร้านเก็บหรือไม่เก็บ"
+    "ข้อมูลอะไรไว้ในระบบ** เพราะลูกค้าไม่ต้องรู้เรื่องระบบหลังร้าน\n"
+    "- ห้ามพูดว่า 'ดูจากการ์ดด้านล่าง' หรือ 'ดูรายการด้านล่าง' เพราะโหมดนี้ไม่มีรายการให้ดู "
+    "ต้องเล่าข้อมูลออกมาในข้อความเลย"
+)
+
+# โหมดพนักงาน — เห็นข้อมูลครบ มีการ์ดสรุปให้ ทำงานเร็ว
+CHAT_PROMPT_STAFF = (
+    "คุณคือผู้ช่วยพนักงานขายในร้านหนังสือมือสอง คุยกับ 'พนักงาน' ไม่ใช่ลูกค้า\n"
+    "ตอบสั้น ตรงประเด็น แบบเพื่อนร่วมงานที่รู้งาน\n\n"
+    + _CHAT_RULES_COMMON +
+    "- โหมดนี้บอกข้อมูลหลังร้านได้: รหัสชั้นวาง จำนวนเล่มคงเหลือ สภาพแต่ละเล่ม ราคาขาย\n"
+    "- **ตอบเฉพาะสิ่งที่ถูกถาม ประโยคเดียวจบถ้าได้** ถามชั้นวางก็บอกชั้นวาง ถามปีก็บอกปี\n"
+    "- **เจอมากกว่า 1 เล่ม: บอกแค่จำนวน แล้วชี้ไปที่การ์ด** เช่น 'เจอ 3 เล่มครับ "
+    "รายละเอียดกับชั้นวางดูจากการ์ดด้านล่างเลย' **ห้ามไล่ชื่อหนังสือทีละเล่มในข้อความ** "
+    "เพราะการ์ดแสดงให้ครบแล้ว จะกลายเป็นข้อมูลซ้ำซ้อน\n"
+    "- เจอเล่มเดียว: ตอบข้อมูลที่ถูกถามได้เลยในประโยคเดียว\n"
+    "- **เขียนเป็นข้อความธรรมดา** ห้ามใช้ * ห้ามทำหัวข้อย่อย ห้ามขึ้นบรรทัดเป็นข้อๆ\n"
+    "- **ถ้าไม่เจอ ให้ตอบว่าไม่มีแล้วหยุด** ห้ามต่อท้ายว่าเจอกี่เล่มหรือให้ไปดูการ์ด\n"
+    "- ถ้าถามรีวิว ให้ชวนกดลิงก์ 'ดูรีวิวเล่มนี้ใน Google' ที่อยู่ในการ์ดหนังสือ"
+)
+
+CHAT_SYSTEM_PROMPT = CHAT_PROMPT_STAFF   # เผื่อโค้ดเก่าที่ยังอ้างชื่อเดิม
 
 SEARCH_TOOL = {
     "type": "function",
@@ -688,20 +728,37 @@ def _search_contained_in(text, limit=6):
     return out
 
 
-def _compact_titles(titles):
-    """ย่อผลค้นให้เหลือเฉพาะที่โมเดลต้องใช้ตอบ (ประหยัด token)"""
-    compact = [{
-        "title": t["title"], "author": t["author"],
-        "in_stock": t["in_stock"],
-        "copies": [{"grade": c["grade"], "price": c["price"], "shelf": c["shelf"]}
-                   for c in t["copies"] if c["status"] == "in_stock"][:5],
-    } for t in titles]
+def _compact_titles(titles, mode="staff"):
+    """ย่อผลค้นให้เหลือเฉพาะที่โมเดลต้องใช้ตอบ (ประหยัด token)
+
+    โหมดลูกค้าตัดข้อมูลหลังร้านออกตั้งแต่ชั้นนี้ — ไม่ส่ง 'ชั้นวาง' กับ 'ต้นทุน' ให้โมเดลเห็นเลย
+    ปลอดภัยกว่าการสั่งใน prompt ว่า "ห้ามพูดถึง" เพราะถ้าไม่มีข้อมูล มันหลุดปากไม่ได้
+    แต่เพิ่ม ปีพิมพ์/เรื่องย่อ/สำนักพิมพ์ ให้ เพราะเป็นสิ่งที่ลูกค้าถามบ่อย
+    """
+    if mode == "customer":
+        compact = [{
+            "title": t["title"], "author": t["author"],
+            "publisher": t.get("publisher"), "year": t.get("year"),
+            "category": t.get("category"),
+            "synopsis": (t.get("synopsis") or "")[:400],
+            "copies": [{"สภาพ": GRADE_LABEL.get(c["grade"], c["grade"]), "ราคา": c["price"]}
+                       for c in t["copies"] if c["status"] == "in_stock"][:5],
+        } for t in titles]
+    else:
+        compact = [{
+            "title": t["title"], "author": t["author"],
+            "year": t.get("year"), "in_stock": t["in_stock"],
+            "synopsis": (t.get("synopsis") or "")[:400],
+            "copies": [{"grade": c["grade"], "price": c["price"],
+                        "shelf": c["shelf"], "cost": c.get("cost")}
+                       for c in t["copies"] if c["status"] == "in_stock"][:5],
+        } for t in titles]
     return {"found": len(compact), "books": compact}
 
 
-def _tool_search_books(query):
+def _tool_search_books(query, mode="staff"):
     titles = _search_titles(query, limit=6)
-    return titles, _compact_titles(titles)
+    return titles, _compact_titles(titles, mode)
 
 
 def _chat_completion(messages, tools=None, force_tool=None):
@@ -751,19 +808,90 @@ def _extract_query(user_msg, history=None):
         return user_msg  # สกัดไม่ได้ก็ใช้ข้อความลูกค้าไปค้นตรงๆ
 
 
-def api_chat(history):
+REVIEW_WORDS = ("รีวิว", "review", "เสียงตอบรับ", "คนอ่าน", "ความเห็น",
+                "วิจารณ์", "น่าอ่าน", "feedback")
+
+# คำที่บอกว่ากำลังถาม "คุณสมบัติของเล่มที่คุยกันอยู่" ไม่ใช่เริ่มหาเล่มใหม่
+FOLLOWUP_WORDS = ("สภาพ", "ปีไหน", "ปีพิมพ์", "พิมพ์ปี", "พิมพ์ครั้ง", "ราคา", "กี่บาท",
+                  "ชั้นไหน", "ชั้นวาง", "อยู่ไหน", "รีวิว", "เรื่องย่อ", "ย่อ",
+                  "กี่เล่ม", "เหลือ", "ผู้เขียน", "ใครเขียน", "สำนักพิมพ์", "ผู้แปล",
+                  "เล่มนี้", "เล่มนั้น", "อันนี้", "เล่มเดิม", "ต้นทุน")
+# คำที่บอกว่ากำลัง "เริ่มหาเล่มใหม่" — ต้องชนะคำข้างบน ไม่ให้ยึดเล่มเดิมผิด
+NEWSEARCH_WORDS = ("มี", "หา", "แนะนำ", "แนว", "หมวด", "อยากได้", "ขอ")
+
+
+def _match_category(text):
+    """เทียบข้อความกับหมวดหมู่ของร้านแบบยืดหยุ่น คืนชื่อหมวดที่ตรง หรือ None
+
+    ลูกค้าพิมพ์ 'หนังสือธุรกิจการเงิน' แต่ในฐานข้อมูลเก็บว่า 'ธุรกิจ/การเงิน'
+    ค้นด้วย LIKE ตรงๆ จะไม่เจอเพราะมีขีดคั่น จึงต้องตัดขีดกับช่องว่างออกก่อนเทียบ
+    """
+    norm = lambda s: re.sub(r"[\s/]", "", s or "")
+    t = norm(text)
+    if len(t) < 3:
+        return None
+    for cat in CATEGORIES:
+        if cat == "อื่นๆ":
+            continue
+        if norm(cat) in t:
+            return cat
+    # เทียบทีละส่วนของหมวดที่มีขีดคั่น เช่น 'ธุรกิจ/การเงิน' -> 'ธุรกิจ' หรือ 'การเงิน'
+    for cat in CATEGORIES:
+        for part in cat.split("/"):
+            if len(part) >= 4 and norm(part) in t:
+                return cat
+    return None
+
+
+def _is_followup(msg):
+    """คำถามต่อเนื่องถึงเล่มเดิม = มีคำถามคุณสมบัติ แต่ไม่ได้ขอค้นเล่มใหม่"""
+    m = (msg or "").strip()
+    if len(m) > 40:          # ประโยคยาวมักมีชื่อหนังสือหรือเงื่อนไขใหม่อยู่ในตัว
+        return False
+    if not any(w in m for w in FOLLOWUP_WORDS):
+        return False
+    # "มีเล่มนี้ไหม" ยังถือเป็นต่อเนื่อง แต่ "มีหนังสือธุรกิจไหม" ไม่ใช่
+    if any(w in m for w in ("เล่มนี้", "เล่มนั้น", "อันนี้", "เล่มเดิม")):
+        return True
+    return not any(m.startswith(w) or (" " + w) in m for w in NEWSEARCH_WORDS)
+
+
+def _review_url(t):
+    q = " ".join(x for x in (t.get("title"), t.get("title_alt"),
+                             t.get("author"), "รีวิว หนังสือ") if x)
+    return "https://www.google.com/search?q=" + urllib.parse.quote(q)
+
+
+def api_chat(history, mode="staff"):
     """history = [{role:'user'|'assistant', content:str}, ...] จบด้วยข้อความล่าสุดของลูกค้า
 
     ทำ 3 ขั้นแบบกำหนดแน่นอน (ไม่พึ่ง function calling): สกัดคำค้น -> ค้นฐานข้อมูลด้วยโค้ด -> ให้โมเดลเรียบเรียงคำตอบ
     วิธีนี้ "รับประกัน" ว่าค้นฐานข้อมูลก่อนตอบทุกครั้งจริง แข็งแรงกว่าการหวังให้โมเดลเรียก tool เอง
+
+    mode="customer" — คุยแบบพนักงานขาย ตอบเป็นข้อความล้วน ไม่ส่งการ์ด ไม่เห็นข้อมูลหลังร้าน
+    mode="staff"    — ผู้ช่วยพนักงาน เห็นข้อมูลครบ ส่งการ์ดหนังสือมาให้ด้วย
     """
     user_msg = next((m.get("content", "") for m in reversed(history)
                      if m.get("role") == "user"), "").strip()
     if not user_msg:
         return {"reply": "พิมพ์คำถามได้เลยครับ", "books": []}
 
-    query = _extract_query(user_msg, history)
-    titles, compact = _tool_search_books(query)
+    # คำถามต่อเนื่อง: ถามคุณสมบัติของเล่มเดิมโดยไม่เอ่ยชื่อ ("สภาพเป็นยังไง", "พิมพ์ปีไหน")
+    # ต้องยึดเล่มที่คุยกันอยู่ ห้ามค้นใหม่ เพราะตัวสกัดคำค้นชอบแต่งชื่อหนังสือขึ้นมา
+    # แล้วบางทีชื่อที่แต่งไปตรงกับเล่มอื่นในร้านพอดี ทำให้ตอบข้ามเล่มโดยไม่มีใครรู้
+    titles = compact = None
+    if _is_followup(user_msg):
+        for old in reversed([str(m.get("content") or "").strip()
+                             for m in history[:-1] if m.get("role") == "user"]):
+            got = _search_contained_in(old)
+            if got:
+                titles, compact = got, _compact_titles(got, mode)
+                break
+
+    query = user_msg
+    if not titles:
+        query = _extract_query(user_msg, history)
+        titles, compact = _tool_search_books(query, mode)
 
     # ชั้นสำรอง 1: คำค้นมักมีคำถามติดมา ("มีข้างหลังภาพ") — หาชื่อเล่มที่อยู่ข้างในคำค้น
     if not titles:
@@ -771,7 +899,7 @@ def api_chat(history):
             got = _search_contained_in(cand)
             if got:
                 titles = got
-                compact = _compact_titles(titles)
+                compact = _compact_titles(titles, mode)
                 break
 
     # ชั้นสำรอง 2: โมเดลบางครั้งส่งคำค้นมาหลายคำ ("ลูกอีสาน, ราคา") ซึ่งค้นรวมกันแล้วไม่เจอ
@@ -780,18 +908,29 @@ def api_chat(history):
         terms = [t.strip() for t in re.split(r"[,ฯ/|]+|\s{1,}", query) if len(t.strip()) >= 2]
         merged, seen_ids = [], set()
         for t in terms:
-            got, _ = _tool_search_books(t)
+            got, _ = _tool_search_books(t, mode)
             for row in got:
                 if row["id"] not in seen_ids:
                     seen_ids.add(row["id"])
                     merged.append(row)
         if merged:
             titles = merged[:6]
-            compact = _compact_titles(titles)
+            compact = _compact_titles(titles, mode)
 
     # ยังไม่เจอ ลองค้นด้วยข้อความเดิมของลูกค้าตรงๆ
     if not titles and query != user_msg:
-        titles, compact = _tool_search_books(user_msg)
+        titles, compact = _tool_search_books(user_msg, mode)
+
+    # ชั้นสำรอง 3: ถามหาตามแนวเรื่อง/หมวดหมู่ ("มีหนังสือธุรกิจการเงินไหม")
+    # เทียบกับหมวดของร้านแบบตัดขีดคั่นออก แล้วค้นด้วยชื่อหมวดที่ถูกต้อง
+    if not titles:
+        cat = _match_category(user_msg) or _match_category(query)
+        if cat:
+            titles, compact = _tool_search_books(cat, mode)
+
+    # ไม่มีชั้นสำรองย้อนดูข้อความเก่าตรงนี้แล้ว — คำถามต่อเนื่องจัดการไปตอนต้นฟังก์ชันแล้ว
+    # ถ้าถามหาเล่มใหม่แล้วไม่เจอ ต้องตอบว่า "ไม่มี" ตรงๆ
+    # (บั๊กเดิม: ถาม "มีหนังสือธุรกิจไหม" ไม่เจอ แล้วระบบดึงเล่มที่คุยค้างไว้มาโชว์ ทำให้ตอบขัดกันเอง)
 
     seen, books = set(), []
     for t in titles:
@@ -799,23 +938,40 @@ def api_chat(history):
             seen.add(t["id"])
             books.append(t)
 
-    convo = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+    is_customer = mode == "customer"
+    convo = [{"role": "system",
+              "content": CHAT_PROMPT_CUSTOMER if is_customer else CHAT_PROMPT_STAFF}]
     convo += [m for m in history if m.get("role") in ("user", "assistant")]
     convo.append({
         "role": "system",
         "content": ("ผลค้นจากฐานข้อมูลสต็อกจริง (ใช้ข้อมูลนี้เท่านั้นในการตอบ ห้ามเพิ่มเล่มที่ไม่อยู่ในนี้):\n"
                     + json.dumps(compact, ensure_ascii=False)),
     })
+
+    # โหมดลูกค้าไม่มีการ์ด จึงแนบลิงก์รีวิวเป็นลิงก์ในแชท และตัดสินด้วยโค้ด ไม่ให้โมเดลแต่ง URL เอง
+    links = []
+    if is_customer and any(w in user_msg.lower() for w in REVIEW_WORDS):
+        links = [{"label": f"รีวิว “{t['title']}” ใน Google", "url": _review_url(t)}
+                 for t in books[:3]]
+
     try:
         r = _chat_completion(convo)
         reply = (r["choices"][0]["message"].get("content") or "").strip()
     except Exception as exc:
-        return {"reply": f"ขอโทษครับ ระบบขัดข้อง: {exc}", "books": books}
+        return {"reply": f"ขอโทษครับ ระบบขัดข้อง: {exc}", "books": [] if is_customer else books}
 
     if not reply:
-        reply = (f"เจอ {len(books)} เล่มครับ เช็คราคากับชั้นวางได้จากรายการด้านล่างเลยครับ"
-                 if books else "ไม่เจอเล่มที่ถามในสต็อกครับ")
-    return {"reply": reply, "books": books}
+        reply = ("ไม่เจอเล่มที่ถามในร้านครับ" if not books
+                 else f"มีอยู่ {len(books)} เล่มครับ" if is_customer
+                 else f"เจอ {len(books)} เล่มครับ ดูราคากับชั้นวางจากการ์ดด้านล่างเลย")
+    # กันสัญลักษณ์ markdown หลุดออกจอ — หน้าเว็บแสดงข้อความล้วน ไม่ได้แปลง markdown
+    # จึงเห็นเป็น *ชื่อหนังสือ* ติดดาวมาเลย
+    reply = re.sub(r"^\s*[-*•]\s+", "", reply, flags=re.M)
+    reply = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", reply)
+    reply = re.sub(r"\n{3,}", "\n\n", reply).strip()
+    return {"reply": reply,
+            "books": [] if is_customer else books,   # โหมดลูกค้า = ไม่ส่งการ์ด
+            "links": links}
 
 
 def suggest_price(cover_price, grade):
@@ -1043,7 +1199,8 @@ class Handler(BaseHTTPRequestHandler):
             history = p.get("messages") or []
             if not history:
                 return self._send(400, {"error": "ไม่มีข้อความ"})
-            return self._send(200, api_chat(history))
+            mode = "customer" if p.get("mode") == "customer" else "staff"
+            return self._send(200, api_chat(history, mode))
         if path == "/api/buyback-quote":
             return self._send(200, api_buyback_quote(p))
         if path == "/api/reset":

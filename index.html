@@ -257,6 +257,24 @@ td.num{text-align:right}
 .shot-slot.filled .slot-hint{display:none}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.mode-pick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}
+.mode{cursor:pointer}
+.mode input{position:absolute;opacity:0;pointer-events:none}
+.mode-box{
+  display:block;padding:9px 11px;border-radius:10px;
+  background:var(--panel-2);border:1px solid var(--line);
+  transition:border-color .17s ease,box-shadow .17s ease;
+}
+.mode-box b{display:block;font-size:.86rem;font-weight:600}
+.mode-box em{display:block;font-style:normal;font-size:.68rem;color:var(--muted);line-height:1.45;margin-top:2px}
+.mode input:checked + .mode-box{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.msg-links{display:flex;flex-direction:column;gap:5px;margin:6px 0 0}
+.msg-links a{
+  font-size:.76rem;color:var(--accent-2);text-decoration:none;
+  border:1px solid var(--line);border-radius:8px;padding:6px 9px;
+  background:var(--panel-2);
+}
+.msg-links a:hover{border-color:var(--accent)}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 12px}
 .chips button{
   appearance:none;cursor:pointer;font-family:inherit;font-size:.74rem;
@@ -385,12 +403,20 @@ td.num{text-align:right}
   <!-- ============ คุยกับ AI / ขาย ============ -->
   <section id="tab-search">
     <h2>คุยกับ AI ถามหาหนังสือ</h2>
-    <p class="hint">พิมพ์คำถามแบบที่ลูกค้าจะถามจริง — AI จะค้นฐานข้อมูลสต็อกจริงก่อนตอบทุกครั้ง ไม่เดาราคาหรือชั้นวางเอง</p>
-    <div class="chips" id="chat-suggestions">
-      <button type="button" data-q="มีข้างหลังภาพไหม ราคาเท่าไหร่">มีข้างหลังภาพไหม ราคาเท่าไหร่</button>
-      <button type="button" data-q="มีหนังสือแนวสืบสวนหรือลึกลับไหม">แนวสืบสวน/ลึกลับ</button>
-      <button type="button" data-q="มีหนังสือธุรกิจการเงินไหม">หนังสือธุรกิจ/การเงิน</button>
+    <p class="hint">AI ค้นฐานข้อมูลสต็อกจริงก่อนตอบทุกครั้ง ไม่เดาราคาหรือชั้นวางเอง</p>
+
+    <div class="mode-pick" role="radiogroup" aria-label="เลือกโหมดแชท">
+      <label class="mode">
+        <input type="radio" name="chatmode" value="customer" checked>
+        <span class="mode-box"><b>💬 ลูกค้า</b><em>ตอบเป็นข้อความคุย ไม่เห็นข้อมูลหลังร้าน</em></span>
+      </label>
+      <label class="mode">
+        <input type="radio" name="chatmode" value="staff">
+        <span class="mode-box"><b>🧑‍💼 พนักงาน</b><em>เห็นชั้นวาง+สต็อก มีการ์ดสรุป</em></span>
+      </label>
     </div>
+
+    <div class="chips" id="chat-suggestions"></div>
     <div id="chat-log" aria-live="polite"></div>
     <div class="chat-inputbar">
       <div class="field row" style="margin-bottom:0">
@@ -745,6 +771,37 @@ function addBooks(books) {
   log.scrollTop = log.scrollHeight;
 }
 
+// โหมดลูกค้า = คุยเหมือนพนักงานขายจริง / โหมดพนักงาน = เห็นข้อมูลหลังร้าน + มีการ์ด
+const chatMode = () => (document.querySelector('input[name="chatmode"]:checked') || {}).value || 'customer';
+
+const SUGGEST = {
+  customer: [['มีข้างหลังภาพไหม ราคาเท่าไหร่', 'มีข้างหลังภาพไหม ราคาเท่าไหร่'],
+             ['เล่มนี้สภาพเป็นยังไง', 'สภาพเป็นยังไง'],
+             ['พิมพ์ปีไหน', 'พิมพ์ปีไหน'],
+             ['เล่าเรื่องย่อให้ฟังหน่อย', 'เรื่องย่อ'],
+             ['เล่มนี้รีวิวเป็นยังไง', 'รีวิวเป็นยังไง']],
+  staff:    [['ข้างหลังภาพอยู่ชั้นไหน', 'อยู่ชั้นไหน'],
+             ['เหลือกี่เล่ม', 'เหลือกี่เล่ม'],
+             ['มีหนังสือธุรกิจการเงินไหม', 'หนังสือธุรกิจ/การเงิน'],
+             ['มีหนังสือแนวสืบสวนหรือลึกลับไหม', 'แนวสืบสวน/ลึกลับ']]
+};
+function renderSuggest() {
+  $('chat-suggestions').innerHTML = SUGGEST[chatMode()]
+    .map(([q, label]) => `<button type="button" data-q="${esc(q)}">${esc(label)}</button>`).join('');
+}
+document.querySelectorAll('input[name="chatmode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    // เริ่มบทสนทนาใหม่ เพราะ 2 โหมดคุยกันคนละบุคลิกและเห็นข้อมูลไม่เท่ากัน
+    chatHistory = [];
+    $('chat-log').innerHTML = '';
+    renderSuggest();
+    addMsg('bot', chatMode() === 'customer'
+      ? 'สวัสดีครับ ร้านหนังสือมือสองครับ กำลังหาเล่มไหนอยู่ครับ'
+      : 'โหมดพนักงานครับ ถามชั้นวาง จำนวนคงเหลือ หรือค้นสต็อกได้เลย');
+  });
+});
+renderSuggest();
+
 async function sendChat(text) {
   text = text.trim();
   if (!text) return;
@@ -754,12 +811,19 @@ async function sendChat(text) {
   const thinking = addMsg('bot', '<span class="typing"><span></span><span></span><span></span></span>', 'thinking');
   $('btn-chat-send').disabled = true;
   try {
-    const r = await post('chat', {messages: chatHistory});
+    const r = await post('chat', {messages: chatHistory, mode: chatMode()});
     thinking.remove();
     if (r.error) {
       addMsg('bot', esc(r.error), 'err');
     } else {
-      addMsg('bot', esc(r.reply || '(ไม่มีคำตอบ)'));
+      let html = esc(r.reply || '(ไม่มีคำตอบ)');
+      // โหมดลูกค้าไม่มีการ์ด — ลิงก์รีวิวจึงแนบไว้ในข้อความแชทเลย
+      if (r.links && r.links.length) {
+        html += '<div class="msg-links">' + r.links.map(l =>
+          `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">🔍 ${esc(l.label)}</a>`
+        ).join('') + '</div>';
+      }
+      addMsg('bot', html);
       chatHistory.push({role: 'assistant', content: r.reply || ''});
       addBooks(r.books);
     }
