@@ -257,6 +257,19 @@ td.num{text-align:right}
 .shot-slot.filled .slot-hint{display:none}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 12px}
+.chips button{
+  appearance:none;cursor:pointer;font-family:inherit;font-size:.74rem;
+  color:var(--muted);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:999px;padding:5px 11px;
+  transition:border-color .15s ease,color .15s ease,transform .1s ease;
+}
+.chips button:hover{color:var(--ink);border-color:var(--accent)}
+.chips button:active{transform:scale(.96)}
+.chips button.on{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+#cat-src{font-size:.7rem;font-weight:500;padding:1px 6px;border-radius:5px}
+#cat-src.cover{color:var(--gA);background:var(--gA-bg)}
+#cat-src.guess{color:var(--gC);background:var(--gC-bg)}
 .cmp-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 #cmp table{width:100%;min-width:430px;border-collapse:collapse;font-size:.76rem}
 #cmp th,#cmp td{padding:7px 9px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
@@ -487,18 +500,12 @@ td.num{text-align:right}
     </div>
     <div class="row">
       <div class="field"><label for="f-pub">สำนักพิมพ์</label><input id="f-pub"></div>
-      <div class="field"><label for="f-category">หมวดหมู่</label><input id="f-category" list="cat-list" placeholder="เช่น นวนิยาย">
-        <datalist id="cat-list">
-          <option value="นวนิยาย"></option><option value="วรรณกรรมแปล"></option>
-          <option value="เรื่องสั้น"></option><option value="ธรรมะ"></option>
-          <option value="จิตวิทยา/พัฒนาตนเอง"></option><option value="ธุรกิจ/การเงิน"></option>
-          <option value="ประวัติศาสตร์"></option><option value="ตำราเรียน"></option>
-          <option value="การ์ตูน"></option><option value="เด็ก/เยาวชน"></option>
-          <option value="ท่องเที่ยว"></option><option value="ทำอาหาร"></option>
-          <option value="อื่นๆ"></option>
-        </datalist>
+      <div class="field">
+        <label for="f-category">หมวดหมู่ <span id="cat-src"></span></label>
+        <input id="f-category" placeholder="แตะเลือกด้านล่าง หรือพิมพ์เอง">
       </div>
     </div>
+    <div id="cat-chips" class="chips" aria-label="เลือกหมวดหมู่"></div>
     <div class="row">
       <div class="field"><label for="f-year">ปีพิมพ์</label><input id="f-year" class="mono" inputmode="numeric"></div>
       <div class="field"><label for="f-edition">พิมพ์ครั้งที่</label><input id="f-edition" class="mono" inputmode="numeric"></div>
@@ -792,6 +799,32 @@ function recalcPrice() {
 bindGrades('grades', g => { grade = g; recalcPrice(); });
 $('f-cover').addEventListener('input', recalcPrice);
 
+// หมวดหมู่ — ดึงรายการจากเซิร์ฟเวอร์ (เก็บไว้ที่เดียว) ทำเป็นปุ่มแตะ เพราะบนมือถือพิมพ์ยาก
+function markCatChip() {
+  const v = $('f-category').value.trim();
+  $('cat-chips').querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', b.dataset.cat === v));
+}
+function setCategory(v, from) {
+  $('f-category').value = v || '';
+  const badge = $('cat-src');
+  badge.className = from || '';
+  badge.textContent = from === 'cover' ? 'จากปก' : from === 'guess' ? 'AI เดา — ตรวจด้วย' : '';
+  markCatChip();
+}
+get('categories').then(d => {
+  $('cat-chips').innerHTML = (d.categories || [])
+    .map(c => `<button type="button" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+  $('cat-chips').querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      // แตะซ้ำที่หมวดเดิม = เอาออก เผื่อเลือกผิด
+      setCategory(b.classList.contains('on') ? '' : b.dataset.cat, '');
+    });
+  });
+  markCatChip();
+}).catch(() => {});
+$('f-category').addEventListener('input', () => { $('cat-src').textContent = ''; markCatChip(); });
+
 try { $('f-shelf').value = localStorage.getItem('lastShelf') || ''; } catch (e) {}
 
 /* ---------- สแกนบาร์โค้ดด้วยกล้องมือถือ ---------- */
@@ -866,7 +899,7 @@ $('btn-lookup').addEventListener('click', async () => {
     foundTitleId = t.id;
     $('f-title').value = t.title || ''; $('f-title-alt').value = t.title_alt || '';
     $('f-author').value = t.author || ''; $('f-translator').value = t.translator || '';
-    $('f-pub').value = t.publisher || ''; $('f-category').value = t.category || '';
+    $('f-pub').value = t.publisher || ''; setCategory(t.category || '', '');
     $('f-edition').value = t.edition || ''; $('f-year').value = t.year || '';
     $('f-cover').value = t.cover_price || ''; $('f-syn').value = t.synopsis || '';
     recalcPrice();
@@ -964,7 +997,7 @@ function applyRead(r) {
   if (d.author) $('f-author').value = d.author;
   if (d.translator) $('f-translator').value = d.translator;
   if (d.publisher) $('f-pub').value = d.publisher;
-  if (d.category) $('f-category').value = d.category;
+  setCategory(d.category || '', d.category_from || '');
   if (d.edition) $('f-edition').value = d.edition;
   if (d.year) $('f-year').value = d.year;
   if (d.isbn) $('isbn').value = d.isbn;
@@ -1089,6 +1122,7 @@ $('btn-save').addEventListener('click', async () => {
   document.querySelector('nav button[data-tab="stock"]').click();
   ['isbn','f-title','f-title-alt','f-author','f-translator','f-pub','f-category','f-edition','f-year','f-cover','f-syn','f-price'].forEach(i => $(i).value = '');
   $('lookup-msg').textContent = '';
+  setCategory('', '');            // ล้างป้ายบอกที่มาของหมวดหมู่ + ปุ่มที่เลือกไว้ด้วย
   foundTitleId = null;
   $('btn-clear-shots').click();   // ล้างรูปทั้ง 3 ช่อง + ข้อความ + panel OCR
 });

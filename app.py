@@ -305,7 +305,8 @@ Formatting Rules:
 FIELD_PROMPT = (
     "จากข้อความที่อ่านได้จากปกหนังสือด้านล่าง ให้แยกข้อมูลเป็น JSON เท่านั้น ห้ามมีข้อความอื่น\n"
     'รูปแบบ: {"title":"","title_alt":"","author":"","translator":"","publisher":"",'
-    '"category":"","edition":"","isbn":"","year":"","cover_price":"","synopsis":""}\n\n'
+    '"category":"","category_guess":"","edition":"","isbn":"","year":"",'
+    '"cover_price":"","synopsis":""}\n\n'
     "กติกาสำคัญที่สุด — **เรื่องภาษา**:\n"
     "- ทุกช่องให้คัดลอกข้อความ **ตามภาษาที่พิมพ์อยู่บนปกจริง** ห้ามแปล ห้ามถอดเสียงเป็นภาษาอื่น\n"
     "- ถ้าชื่อผู้เขียนพิมพ์เป็นภาษาอังกฤษ ให้ใส่เป็นภาษาอังกฤษตามนั้น (เช่น 'Yuval Noah Harari' "
@@ -317,8 +318,11 @@ FIELD_PROMPT = (
     "  ห้ามเอาชื่อ 2 ภาษามาต่อกันในช่องนี้ (ผิด: 'ประวัติย่อมนุษยชาติ Sapiens' / ถูก: title='ประวัติย่อมนุษยชาติ' และ title_alt='Sapiens')\n"
     "- title_alt: **ถ้าปกมีชื่อหนังสือ 2 ภาษา ให้ใส่ชื่ออีกภาษาไว้ช่องนี้** (ถ้ามีภาษาเดียวให้เว้นว่าง)\n"
     "- author: ผู้เขียน / translator: ผู้แปล (ถ้ามีคำว่า 'แปลโดย' 'ผู้แปล' 'Translated by')\n"
-    "- category: หมวดหมู่หนังสือ ถ้าปกระบุไว้ (เช่น นวนิยาย, ธรรมะ, การ์ตูน, ตำราเรียน, "
-    "วรรณกรรมแปล) ถ้าปกไม่ระบุให้เว้นว่าง ห้ามเดาเอง\n"
+    "- category: ใส่**เฉพาะหมวดหมู่ที่พิมพ์อยู่บนปกจริง** ถ้าปกไม่ได้พิมพ์ไว้ให้เว้นว่าง ห้ามเดา\n"
+    "- category_guess: ถ้า category ว่าง ให้**เลือกหมวดที่ใกล้เคียงที่สุด 1 หมวด** โดยดูจาก\n"
+    "  ชื่อเรื่องและเนื้อเรื่องย่อ **ต้องเลือกจากรายการนี้เท่านั้น ห้ามคิดหมวดใหม่**:\n"
+    "  {CATEGORY_LIST}\n"
+    "  (ถ้า category มีค่าอยู่แล้ว ให้เว้น category_guess ว่าง)\n"
     "- edition: พิมพ์ครั้งที่ ใส่เฉพาะตัวเลข (เช่น 'พิมพ์ครั้งที่ 3' -> '3')\n"
     "- isbn: เลข ISBN ถ้ามีบนปก\n"
     "- year: ปีพิมพ์ ใส่เฉพาะตัวเลข / cover_price: ราคาปก ใส่เฉพาะตัวเลข\n"
@@ -328,6 +332,20 @@ FIELD_PROMPT = (
 )
 
 THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+# หมวดหมู่มาตรฐานของร้าน — เก็บไว้ที่เดียว ใช้ทั้งใน prompt ให้ AI เลือก และเป็นปุ่มให้พนักงานแตะ
+# ปกหนังสือส่วนใหญ่ไม่พิมพ์หมวดหมู่ไว้ จึงต้องให้ AI เดาจากชื่อเรื่อง+เนื้อเรื่องย่อ
+CATEGORIES = [
+    "นวนิยาย", "วรรณกรรมแปล", "เรื่องสั้น", "นิยายวาย",
+    "จิตวิทยา/พัฒนาตนเอง", "ธรรมะ/ศาสนา", "ปรัชญา",
+    "ธุรกิจ/การเงิน", "ประวัติศาสตร์", "ชีวประวัติ",
+    "สุขภาพ", "ทำอาหาร", "ท่องเที่ยว", "บ้านและสวน",
+    "ศิลปะ/ออกแบบ", "คอมพิวเตอร์/ไอที", "วิทยาศาสตร์",
+    "ภาษา/พจนานุกรม", "ตำราเรียน/คู่มือสอบ", "กฎหมาย",
+    "การ์ตูน", "เด็ก/เยาวชน", "กีฬา", "อื่นๆ",
+]
+
+FIELD_PROMPT = FIELD_PROMPT.replace("{CATEGORY_LIST}", " · ".join(CATEGORIES))
 
 
 def typhoon_post(body, timeout=120):
@@ -578,6 +596,19 @@ def _finish_read(out, combined, raw_by_image, in_tok, out_tok, u2):
         trimmed = ti.replace(alt, " ").strip(" -–—:|/\t")
         if len(trimmed) >= 2:
             data["title"] = " ".join(trimmed.split())
+
+    # หมวดหมู่: ถ้าปกไม่ได้พิมพ์ไว้ ใช้ที่ AI เดาจากเนื้อเรื่องย่อแทน
+    # แต่รับเฉพาะที่อยู่ในรายการของร้านจริง เพื่อไม่ให้หมวดหมู่งอกใหม่เรื่อยๆ จนค้นหาไม่เจอ
+    cat = (data.get("category") or "").strip()
+    guess = (data.get("category_guess") or "").strip()
+    data["category_from"] = "cover" if cat else ""
+    if not cat and guess:
+        match = next((c for c in CATEGORIES if c == guess), None) \
+            or next((c for c in CATEGORIES if guess in c or c.split("/")[0] == guess), None)
+        if match:
+            data["category"] = match
+            data["category_from"] = "guess"
+    data.pop("category_guess", None)
 
     data.setdefault("confidence", "medium")
 
@@ -959,6 +990,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_lookup(query.get("isbn")))
         if path == "/api/stats":
             return self._send(200, api_stats())
+        if path == "/api/categories":
+            return self._send(200, {"categories": CATEGORIES})
         if path == "/api/grades":
             return self._send(200, {"factors": GRADE_FACTOR, "labels": GRADE_LABEL,
                                     "buyback_rate": BUYBACK_RATE})
