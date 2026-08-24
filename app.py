@@ -232,6 +232,11 @@ Instructions:
 - Only return the clean Markdown.
 - Do not include any explanation or extra text.
 - You must include all information on the page.
+- This is a Thai book. Extract EVERY line of Thai text you can see, including
+  Thai titles, author names, and publisher names. Do not skip Thai text.
+- If the page has BOTH Thai and English text, extract BOTH — put each on its own line.
+- Copy Thai characters exactly as printed, including tone marks
+  (่ ้ ๊ ๋) and vowel marks. Do not normalise or guess a similar word.
 
 Formatting Rules:
 - Tables: Render tables using <table>...</table> in clean HTML format.
@@ -244,7 +249,11 @@ FIELD_PROMPT = (
     'รูปแบบ: {"title":"","author":"","publisher":"","isbn":"","year":"","cover_price":"","synopsis":""}\n'
     "กติกา: ถ้าช่องไหนไม่มีในข้อความ ให้ใส่ค่าว่าง ห้ามเดา ห้ามเติมจากความรู้ของคุณเอง\n"
     "ปีพิมพ์และราคาปกให้ใส่เฉพาะตัวเลข\n"
-    "synopsis เขียนย่อ 1-2 ประโยคจากข้อความบนปกเท่านั้น ถ้าไม่มีข้อมูลพอให้ใส่ค่าว่าง\n\n"
+    "synopsis เขียนย่อ 1-2 ประโยคจากข้อความบนปกเท่านั้น ถ้าไม่มีข้อมูลพอให้ใส่ค่าว่าง\n"
+    "**ถ้ามีทั้งชื่อไทยและชื่ออังกฤษ ให้ใช้ชื่อไทยเป็น title** (ร้านนี้เป็นร้านหนังสือไทย "
+    "ลูกค้าค้นหาด้วยชื่อไทย) ถ้ามีแต่ชื่ออังกฤษจึงใช้ชื่ออังกฤษ\n"
+    "ชื่อผู้เขียนและสำนักพิมพ์ก็เช่นกัน ให้ใช้ภาษาไทยก่อนถ้ามี\n"
+    "คัดลอกตัวอักษรไทยตามที่เห็นเป๊ะๆ รวมวรรณยุกต์ ห้ามเปลี่ยนเป็นคำที่คล้ายกัน\n\n"
     "ข้อความจากปก:\n"
 )
 

@@ -82,14 +82,14 @@ nav{
   pointer-events:none;
 }
 nav .wrap{
-  display:grid;grid-template-columns:repeat(4,1fr);gap:2px;
+  display:grid;grid-template-columns:repeat(5,1fr);gap:2px;
   max-width:520px;background:var(--panel);border:1px solid var(--line);
   border-radius:var(--r-lg);box-shadow:var(--shadow-md);
   padding:6px;pointer-events:auto;
 }
 nav button{
   appearance:none;border:0;background:none;color:var(--muted);
-  font-family:inherit;font-size:.72rem;font-weight:500;
+  font-family:inherit;font-size:.66rem;font-weight:500;
   padding:8px 2px;border-radius:var(--r-md);cursor:pointer;
   display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.2;
   transition:background-color var(--dur) var(--ease), color var(--dur) var(--ease), transform 120ms var(--ease);
@@ -353,6 +353,17 @@ td.num{text-align:right}
     </div>
   </section>
 
+  <!-- ============ สต็อก (ดู/ค้น/ขาย) ============ -->
+  <section id="tab-stock" hidden>
+    <h2>สต็อกหนังสือ</h2>
+    <p class="hint">ดูของที่มีในร้านทั้งหมด ค้นด้วยชื่อ/ผู้เขียน/สำนักพิมพ์/ISBN — เห็นสภาพ ราคา และชั้นวางทุกเล่ม</p>
+    <div class="field row">
+      <input id="stock-q" type="search" placeholder="พิมพ์ชื่อหนังสือ หรือเว้นว่างเพื่อดูล่าสุด" autocomplete="off">
+      <button class="btn" style="flex:none" id="btn-stock-search">ค้น</button>
+    </div>
+    <div id="stock-results"></div>
+  </section>
+
   <!-- ============ ลงสต็อก ============ -->
   <section id="tab-stockin" hidden>
     <h2>ลงสต็อก</h2>
@@ -474,6 +485,8 @@ td.num{text-align:right}
   <div class="wrap" role="tablist">
     <button role="tab" aria-selected="true" data-tab="search">
       <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4z"/></svg>คุยกับ AI</button>
+    <button role="tab" aria-selected="false" data-tab="stock">
+      <svg viewBox="0 0 24 24"><path d="M4 6h16v14H4z"/><path d="M4 10h16"/><path d="M9 6v4"/></svg>สต็อก</button>
     <button role="tab" aria-selected="false" data-tab="stockin">
       <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><path d="M17 15v6M14 18h6"/></svg>ลงสต็อก</button>
     <button role="tab" aria-selected="false" data-tab="buyback">
@@ -520,9 +533,10 @@ document.querySelectorAll('nav button').forEach(b => {
   b.addEventListener('click', () => {
     document.querySelectorAll('nav button').forEach(x =>
       x.setAttribute('aria-selected', String(x === b)));
-    ['search','stockin','buyback','stats'].forEach(t =>
+    ['search','stock','stockin','buyback','stats'].forEach(t =>
       $('tab-' + t).hidden = (t !== b.dataset.tab));
     if (b.dataset.tab === 'stats') loadStats();
+    if (b.dataset.tab === 'stock') loadStock();
     // ปิดกล้องถ้าออกจากแท็บลงสต็อก ไม่ให้ค้างทำงานเบื้องหลัง
     if (b.dataset.tab !== 'stockin' && typeof stopScan === 'function') stopScan();
     window.scrollTo(0, 0);
@@ -552,6 +566,38 @@ function bookCardHTML(t) {
       </div>
     </div>`;
 }
+
+/* ---------- แท็บสต็อก: ดู/ค้น/ขาย ---------- */
+async function loadStock() {
+  const box = $('stock-results');
+  box.innerHTML = '<p class="empty"><span class="spin"></span> กำลังโหลด...</p>';
+  const data = await get('search?q=' + encodeURIComponent($('stock-q').value.trim()));
+  const rows = data.results || [];
+  if (!rows.length) {
+    box.innerHTML = '<p class="empty">ไม่พบหนังสือที่ค้น</p>';
+    return;
+  }
+  const total = rows.reduce((n, t) => n + (t.in_stock || 0), 0);
+  box.innerHTML = `<p class="hint">พบ ${rows.length} ชื่อเรื่อง · คงเหลือรวม ${total} เล่ม</p>`
+    + rows.map(bookCardHTML).join('');
+}
+$('btn-stock-search').addEventListener('click', loadStock);
+$('stock-q').addEventListener('keydown', e => { if (e.key === 'Enter') loadStock(); });
+let stockTimer;
+$('stock-q').addEventListener('input', () => {
+  clearTimeout(stockTimer); stockTimer = setTimeout(loadStock, 400);
+});
+
+// ปุ่ม "ขายเล่มนี้" ในแท็บสต็อก
+$('stock-results').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-sell]');
+  if (!btn) return;
+  btn.disabled = true;
+  const r = await post('sell', {copy_id: Number(btn.dataset.sell)});
+  if (r.error) { toast(r.error, 'error'); btn.disabled = false; return; }
+  toast(`ขาย "${r.title}" ${baht(r.price)} · ตัดสต็อกชั้น ${r.shelf} · กำไร ${baht(r.profit)}`);
+  loadStock();
+});
 
 // ปุ่ม "ขายเล่มนี้" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
 $('chat-log').addEventListener('click', async e => {
@@ -858,7 +904,10 @@ $('btn-save').addEventListener('click', async () => {
   $('btn-save').disabled = false;
   if (r.error) { toast(r.error, 'error'); return; }
   try { localStorage.setItem('lastShelf', payload.shelf); } catch (e) {}
-  toast(`บันทึก "${payload.title}" เกรด ${grade} ${baht(payload.price)} ชั้น ${payload.shelf}`);
+  toast(`บันทึก "${payload.title}" เกรด ${grade} ${baht(payload.price)} ชั้น ${payload.shelf} — ดูได้ในแท็บสต็อก`);
+  // เด้งไปแท็บสต็อกพร้อมค้นชื่อที่เพิ่งบันทึก ให้เห็นทันทีว่าเข้าระบบแล้วจริง
+  $('stock-q').value = payload.title;
+  document.querySelector('nav button[data-tab="stock"]').click();
   ['isbn','f-title','f-author','f-pub','f-year','f-cover','f-syn','f-price'].forEach(i => $(i).value = '');
   $('lookup-msg').textContent = '';
   foundTitleId = null;
