@@ -253,6 +253,21 @@ def init_db():
     conn.execute("INSERT OR IGNORE INTO shelves(code, zone, created_at)"
                  " SELECT DISTINCT shelf, substr(shelf,1,1), ? FROM copies"
                  " WHERE IFNULL(shelf,'') <> ''", (now(),))
+    # เก็บได้หลายรูปต่อชื่อเรื่อง (ปกหน้า/ปกหลัง/หน้าแรก/ฯลฯ) ไม่ใช่แค่ปกหน้าเดียว
+    # เผื่อลูกค้าขอดูรูปเพิ่มก่อนตัดสินใจซื้อ — จำกัดไว้ 10 รูป/ชื่อเรื่อง กันร้านอัปโหลดจนพื้นที่บวม
+    conn.execute("CREATE TABLE IF NOT EXISTS title_images ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "title_id INTEGER NOT NULL REFERENCES titles(id),"
+                 "file TEXT NOT NULL, label TEXT, position INTEGER NOT NULL,"
+                 "created_at TEXT NOT NULL)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_timg_title ON title_images(title_id)")
+    # ย้ายรูปปกเดี่ยวที่เคยเก็บไว้ก่อนหน้านี้ (titles.cover_path) เข้าตารางใหม่
+    # ให้เป็นรูปที่ 1 ของแต่ละเล่ม ไม่ให้ของเดิมที่นุ่นสแกนไปแล้วหายไป
+    conn.execute("INSERT INTO title_images(title_id, file, label, position, created_at)"
+                 " SELECT t.id, t.cover_path, 'ปกหน้า', 0, ? FROM titles t"
+                 " WHERE IFNULL(t.cover_path,'') <> ''"
+                 " AND NOT EXISTS (SELECT 1 FROM title_images ti WHERE ti.title_id = t.id)",
+                 (now(),))
     conn.commit()
     if fresh:
         for isbn, title, author, pub, year, syn, cover, copies in SEED:
@@ -855,6 +870,12 @@ def _extract_query(user_msg, history=None):
 REVIEW_WORDS = ("รีวิว", "review", "เสียงตอบรับ", "คนอ่าน", "ความเห็น",
                 "วิจารณ์", "น่าอ่าน", "feedback")
 
+# ลูกค้าขอดูรูปเพิ่ม (ปกติเพื่อดูสภาพจริงก่อนตัดสินใจซื้อ) — ส่งรูปทุกใบที่มีของเล่มนั้น
+# แทนรูปเดียวที่แนบให้เป็นค่าเริ่มต้นทุกครั้ง
+PHOTO_WORDS = ("รูปเพิ่ม", "รูปอื่น", "รูปทั้งหมด", "ขอดูรูป", "ดูรูป", "ภาพอื่น",
+               "ภาพเพิ่ม", "ภาพทั้งหมด", "ปกหลัง", "ข้างในเล่ม", "หน้าในเล่ม",
+               "มีรูปอื่นไหม", "ขอดูภาพ", "ดูสภาพจริง", "ขอดูตำหนิ")
+
 # คำถามเรื่องหลังร้านที่ลูกค้าไม่ควรได้คำตอบ — ตอบด้วยประโยคสำเร็จ ไม่ต้องถามโมเดลเลย
 # กันด้วยโค้ดเพราะสั่งใน prompt แล้วมันยังหลุด เช่นเผลอบอกว่า "ร้านไม่ได้เก็บข้อมูลชั้นวางไว้"
 # ซึ่งเป็นการเล่าเรื่องระบบหลังร้านให้ลูกค้าฟัง (และไม่จริงด้วย)
@@ -878,7 +899,7 @@ BUYBACK_REPLY = (
 FOLLOWUP_WORDS = ("สภาพ", "ปีไหน", "ปีพิมพ์", "พิมพ์ปี", "พิมพ์ครั้ง", "ราคา", "กี่บาท",
                   "ชั้นไหน", "ชั้นวาง", "อยู่ไหน", "รีวิว", "เรื่องย่อ", "ย่อ",
                   "กี่เล่ม", "เหลือ", "ผู้เขียน", "ใครเขียน", "สำนักพิมพ์", "ผู้แปล",
-                  "เล่มนี้", "เล่มนั้น", "อันนี้", "เล่มเดิม", "ต้นทุน")
+                  "เล่มนี้", "เล่มนั้น", "อันนี้", "เล่มเดิม", "ต้นทุน") + PHOTO_WORDS
 # คำที่บอกว่ากำลัง "เริ่มหาเล่มใหม่" — ต้องชนะคำข้างบน ไม่ให้ยึดเล่มเดิมผิด
 NEWSEARCH_WORDS = ("มี", "หา", "แนะนำ", "แนว", "หมวด", "อยากได้", "ขอ")
 
@@ -1031,8 +1052,14 @@ def api_chat(history, mode="staff"):
                  for t in books[:3]]
 
     # โหมดลูกค้าไม่มีการ์ด (books ถูกล้างท้ายฟังก์ชัน) จึงส่งแค่ปกให้โชว์ในแชทแทน
-    covers = ([{"title": b["title"], "file": b["cover_path"]}
-               for b in books if b.get("cover_path")][:4]) if is_customer else []
+    # ถ้าลูกค้าขอดูรูปเพิ่ม (เช่น "มีรูปอื่นไหม") ส่งรูปทุกใบของเล่มแรกที่เจอ
+    # ปกติจะเหลือแค่เล่มเดียวอยู่แล้ว เพราะคำถามแบบนี้ถูกจับเป็นคำถามต่อเนื่องถึงเล่มที่คุยอยู่
+    if is_customer and books and any(w in user_msg for w in PHOTO_WORDS):
+        covers = [{"title": books[0]["title"], "file": im["file"]}
+                  for im in _title_images(books[0]["id"])]
+    else:
+        covers = ([{"title": b["title"], "file": b["cover_path"]}
+                   for b in books if b.get("cover_path")][:4]) if is_customer else []
 
     try:
         r = _chat_completion(convo)
@@ -1093,17 +1120,13 @@ def api_stockin(p):
     code = copy_code(cur.lastrowid)
     conn.execute("UPDATE copies SET code=? WHERE id=?", (code, cur.lastrowid))
 
-    # เก็บรูปปกหน้าไว้ครั้งแรกที่เจอ (ครั้งต่อไปที่ลงเล่มเดียวกันไม่ต้องเขียนทับ)
-    # ให้เห็นแค่พอบอกว่าเป็นเล่มไหน ไม่ใช่ภาพคุณภาพสูงสำหรับพิสูจน์สภาพ
-    cover_b64 = p.get("cover_image")
-    if cover_b64:
-        cur_cover = conn.execute("SELECT cover_path FROM titles WHERE id=?", (tid,)).fetchone()
-        if not (cur_cover and cur_cover["cover_path"]):
-            try:
-                fname = save_cover(tid, cover_b64)
-                conn.execute("UPDATE titles SET cover_path=? WHERE id=?", (fname, tid))
-            except Exception:
-                pass   # รูปปกเป็นของเสริม ถ้าเสียหายไม่ควรทำให้บันทึกสต็อกล้มไปด้วย
+    # เก็บรูปทุกใบที่ถ่ายมา (ปกหน้า/ปกหลัง/หน้าแรก) ไม่ใช่แค่ปกหน้าเดียว
+    # เผื่อลูกค้าขอดูรูปเพิ่มก่อนตัดสินใจซื้อ — จำกัด 10 รูป/ชื่อเรื่อง (กันซ้ำถ้าลงเล่มเดิมซ้ำ)
+    images = p.get("cover_images")
+    if not images and p.get("cover_image"):   # เผื่อยังมีที่ส่งแบบเดี่ยวแบบเก่า
+        images = [{"label": "ปกหน้า", "image_b64": p["cover_image"]}]
+    if images:
+        save_title_images(conn, tid, images)
 
     conn.commit()
     row = conn.execute("SELECT * FROM titles WHERE id=?", (tid,)).fetchone()
@@ -1221,24 +1244,63 @@ def _ensure_shelf(conn, code):
 COVERS_DIR = BASE / "covers"
 COVERS_DIR.mkdir(exist_ok=True)
 COVER_MAX_W = 420   # แค่พอโชว์ในแชท/การ์ด ไม่ใช่ภาพเก็บถาวรคุณภาพสูง
+MAX_IMAGES_PER_TITLE = 10   # กันร้านอัปโหลดรูปจนพื้นที่บวม (10,000 เล่ม x หลายรูป)
 
 
-def save_cover(title_id, image_b64):
-    """ย่อรูปปกหน้าให้เล็กแล้วบันทึกเป็นไฟล์ .jpg คืนชื่อไฟล์ (ไม่ใช่ path เต็ม)
+def _save_image_file(title_id, position, image_b64):
+    """ย่อรูปให้เล็กแล้วบันทึกเป็นไฟล์ .jpg คืนชื่อไฟล์ (ไม่ใช่ path เต็ม)
 
-    ย่อก่อนเก็บเพราะรูปจากมือถือมักเป็นไฟล์หลาย MB ต่อรูป
-    ถ้าเก็บดิบไว้ทั้ง 10,000 เล่ม จะกินพื้นที่หลัก GB โดยไม่จำเป็น —
-    ภาพขนาดนี้เพียงพอสำหรับโชว์เป็นรูปย่อในแชทและการ์ดค้นหา
+    ย่อก่อนเก็บเพราะรูปจากมือถือมักเป็นไฟล์หลาย MB ต่อรูป — ถ้าเก็บดิบไว้
+    ทั้ง 10,000 เล่ม x หลายรูป จะกินพื้นที่หลัก GB โดยไม่จำเป็น
+    ภาพขนาดนี้เพียงพอสำหรับโชว์เป็นรูปย่อในแชทและการ์ดค้นหา ไม่ใช่พิสูจน์ตำหนิละเอียด
     """
     raw = base64.b64decode(image_b64)
-    im = Image.open(io.BytesIO(raw))
-    im = im.convert("RGB")
+    im = Image.open(io.BytesIO(raw)).convert("RGB")
     if im.width > COVER_MAX_W:
         h = round(im.height * COVER_MAX_W / im.width)
         im = im.resize((COVER_MAX_W, h), Image.LANCZOS)
-    fname = f"{title_id}.jpg"
+    fname = f"{title_id}_{position}.jpg"
     im.save(COVERS_DIR / fname, "JPEG", quality=82)
     return fname
+
+
+def save_title_images(conn, title_id, images):
+    """เก็บรูปทุกใบที่ถ่ายมา (ปกหน้า/ปกหลัง/หน้าแรก/ฯลฯ) ไม่ใช่แค่ปกหน้าเดียว
+
+    ลูกค้าอาจขอดูรูปเพิ่มก่อนตัดสินใจซื้อ (เห็นตำหนิ/สภาพจริง) จึงเก็บทุกรูปที่มี
+    จำกัดไว้ 10 รูป/ชื่อเรื่อง — ถ้าเกินจะเก็บแค่เท่าที่พอ ไม่ error ทั้งการบันทึกสต็อก
+    """
+    if not images:
+        return 0
+    n_existing = conn.execute(
+        "SELECT COUNT(*) FROM title_images WHERE title_id=?", (title_id,)).fetchone()[0]
+    room = MAX_IMAGES_PER_TITLE - n_existing
+    saved = 0
+    for i, im in enumerate(images[:room]):
+        b64 = im.get("image_b64") if isinstance(im, dict) else im
+        if not b64:
+            continue
+        label = im.get("label") if isinstance(im, dict) else None
+        try:
+            fname = _save_image_file(title_id, n_existing + i, b64)
+        except Exception:
+            continue   # รูปเป็นของเสริม ถ้าเสียหายไม่ควรทำให้บันทึกสต็อกล้มไปด้วย
+        conn.execute(
+            "INSERT INTO title_images(title_id, file, label, position, created_at)"
+            " VALUES(?,?,?,?,?)", (title_id, fname, label, n_existing + i, now()))
+        if n_existing + i == 0:   # รูปแรกของเล่ม = ปกที่โชว์เป็นค่าเริ่มต้นในการ์ด/แชท
+            conn.execute("UPDATE titles SET cover_path=? WHERE id=?", (fname, title_id))
+        saved += 1
+    return saved
+
+
+def _title_images(title_id):
+    conn = db()
+    rows = conn.execute(
+        "SELECT file, label FROM title_images WHERE title_id=? ORDER BY position",
+        (title_id,)).fetchall()
+    conn.close()
+    return [{"file": r["file"], "label": r["label"]} for r in rows]
 
 
 def copy_code(copy_id):
@@ -1512,7 +1574,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/cover/"):
             # รูปปกต้องให้บัญชีลูกค้าดูได้ด้วย (โชว์ในแชท) จึงเสิร์ฟก่อนเช็คสิทธิ์ด้านล่าง
             fname = path.rsplit("/", 1)[-1]
-            if not re.fullmatch(r"\d+\.jpg", fname):
+            if not re.fullmatch(r"\d+(_\d+)?\.jpg", fname):
                 return self._send(400, {"error": "รหัสรูปไม่ถูกต้อง"})
             fpath = COVERS_DIR / fname
             if not fpath.is_file():
