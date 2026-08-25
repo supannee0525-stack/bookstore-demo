@@ -139,6 +139,7 @@ button.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
   padding:16px;margin-bottom:12px;box-shadow:var(--shadow-sm);
 }
+.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .card h3{margin:0 0 2px;font-size:1.02rem;font-weight:700;font-family:'Chakra Petch','Kanit',sans-serif}
 .card .meta{font-size:.82rem;color:var(--muted);margin:0 0 8px}
 .card .syn{font-size:.86rem;color:var(--muted);margin:0 0 10px}
@@ -259,11 +260,11 @@ td.num{text-align:right}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
 /* สติกเกอร์ติดหลังเล่ม — ขนาดจริงประมาณ 50x30 มม. */
-#sticker-box{
+#sticker-box,#edit-box{
   position:fixed;inset:0;z-index:60;display:grid;place-items:center;
   background:rgba(3,6,14,.72);padding:18px;
 }
-#sticker-box[hidden]{display:none}
+#sticker-box[hidden],#edit-box[hidden]{display:none}
 .sticker-panel{
   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
   padding:16px;max-width:340px;width:100%;box-shadow:0 24px 60px -20px rgba(0,0,0,.85);
@@ -271,6 +272,25 @@ td.num{text-align:right}
 .sticker-panel h3{margin:0 0 4px;font-size:.95rem}
 .sticker-panel .hint{margin:0 0 12px}
 #sticker-wrap{display:flex;flex-direction:column;align-items:center}
+
+/* แก้ไขรายละเอียดหนังสือ */
+.edit-panel{max-width:460px;max-height:88vh;display:flex;flex-direction:column}
+#edit-form{overflow-y:auto;padding-right:2px}
+#edit-form .field{margin-bottom:10px}
+#edit-form label{display:block;font-size:.78rem;color:var(--muted);margin:0 0 4px}
+#edit-form input,#edit-form select,#edit-form textarea{
+  width:100%;font-family:inherit;font-size:.9rem;color:var(--ink);
+  background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:9px 11px;
+}
+#edit-form textarea{resize:vertical;min-height:52px}
+.edit-copies{margin-top:6px;display:flex;flex-direction:column;gap:8px}
+.edit-copy{
+  border:1px solid var(--line);border-radius:10px;padding:9px;
+  display:grid;grid-template-columns:56px 1fr 1fr;gap:7px;background:var(--panel-2);
+}
+.edit-copy .code{grid-column:1/-1;font-size:.7rem;color:var(--muted);margin-bottom:2px}
+.edit-copy select,.edit-copy input{font-size:.84rem;padding:7px 8px}
 .sticker{
   width:189px;                     /* 50mm ที่ 96dpi */
   background:#fff;color:#000;border:1px solid #999;border-radius:4px;
@@ -771,7 +791,10 @@ document.querySelectorAll('nav button').forEach(b => {
 function bookCardHTML(t) {
   return `
     <div class="card">
-      <h3>${esc(t.title)}</h3>
+      <div class="card-head">
+        <h3>${esc(t.title)}</h3>
+        <button class="btn ghost sm" data-edit="${t.id}" style="flex:none">แก้ไข</button>
+      </div>
       ${t.title_alt ? `<p class="meta" style="margin:0 0 4px">${esc(t.title_alt)}</p>` : ''}
       <p class="meta">${esc(t.author || 'ไม่ระบุผู้เขียน')}${t.translator ? ' · แปล ' + esc(t.translator) : ''}
         · ${esc(t.publisher || '-')} ${esc(t.year || '')}${t.edition ? ' · พิมพ์ครั้งที่ ' + esc(t.edition) : ''}
@@ -801,11 +824,16 @@ function bookCardHTML(t) {
 }
 
 /* ---------- แท็บสต็อก: ดู/ค้น/ขาย ---------- */
+// เก็บข้อมูลหนังสือที่เพิ่งโชว์บนจอไว้ ให้ปุ่ม "แก้ไข" เปิดฟอร์มได้ทันทีโดยไม่ต้องยิง API ซ้ำ
+const CARD_DATA = {};
+function cacheCards(rows) { (rows || []).forEach(t => { if (t && t.id) CARD_DATA[t.id] = t; }); }
+
 async function loadStock() {
   const box = $('stock-results');
   box.innerHTML = '<p class="empty"><span class="spin"></span> กำลังโหลด...</p>';
   const data = await get('search?q=' + encodeURIComponent($('stock-q').value.trim()));
   const rows = data.results || [];
+  cacheCards(rows);
   if (!rows.length) {
     box.innerHTML = '<p class="empty">ไม่พบหนังสือที่ค้น</p>';
     return;
@@ -823,6 +851,8 @@ $('stock-q').addEventListener('input', () => {
 
 // ปุ่ม "ขายเล่มนี้" ในแท็บสต็อก
 $('stock-results').addEventListener('click', async e => {
+  const editBtn = e.target.closest('[data-edit]');
+  if (editBtn) { openEditModal(Number(editBtn.dataset.edit)); return; }
   const btn = e.target.closest('[data-sell]');
   if (!btn) return;
   btn.disabled = true;
@@ -834,6 +864,8 @@ $('stock-results').addEventListener('click', async e => {
 
 // ปุ่ม "ขายเล่มนี้" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
 $('chat-log').addEventListener('click', async e => {
+  const editBtn = e.target.closest('[data-edit]');
+  if (editBtn) { openEditModal(Number(editBtn.dataset.edit)); return; }
   const btn = e.target.closest('[data-sell]');
   if (!btn) return;
   btn.disabled = true;
@@ -843,6 +875,80 @@ $('chat-log').addEventListener('click', async e => {
   const copyEl = btn.closest('.copy');
   copyEl.classList.add('sold');
   copyEl.querySelector('[data-sell]').outerHTML = '<span class="sold-tag">ขายแล้ว</span>';
+});
+
+/* ---------- แก้ไขรายละเอียดหนังสือ ---------- */
+function catOptionsHTML(selected) {
+  return '<option value=""' + (selected ? '' : ' selected') + '>— ไม่ระบุ —</option>' +
+    ALL_CATEGORIES.map(c => `<option value="${esc(c)}"${c === selected ? ' selected' : ''}>${esc(c)}</option>`).join('');
+}
+const GRADE_OPT = [['A', 'A ดีมาก'], ['B', 'B ดี'], ['C', 'C พออ่านได้']];
+function gradeOptionsHTML(selected) {
+  return GRADE_OPT.map(([g, lbl]) => `<option value="${g}"${g === selected ? ' selected' : ''}>${lbl}</option>`).join('');
+}
+
+let currentEditId = null;
+
+function openEditModal(id) {
+  const t = CARD_DATA[id];
+  if (!t) { toast('โหลดข้อมูลไม่ทัน ลองค้นในแท็บสต็อกก่อนแก้ไข', 'error'); return; }
+  currentEditId = id;
+  const F = (k, v) => `<div class="field"><label>${k}</label>${v}</div>`;
+  const val = k => esc(t[k] || '');
+  $('edit-form').innerHTML =
+    F('ชื่อหนังสือ *', `<input id="e-title" value="${val('title')}">`) +
+    F('ชื่ออีกภาษา', `<input id="e-title-alt" value="${val('title_alt')}">`) +
+    `<div class="row"><div class="field"><label>ผู้เขียน</label><input id="e-author" value="${val('author')}"></div>` +
+    `<div class="field"><label>ผู้แปล</label><input id="e-translator" value="${val('translator')}"></div></div>` +
+    `<div class="row"><div class="field"><label>สำนักพิมพ์</label><input id="e-pub" value="${val('publisher')}"></div>` +
+    `<div class="field"><label>หมวดหมู่</label><select id="e-category">${catOptionsHTML(t.category)}</select></div></div>` +
+    `<div class="row"><div class="field"><label>พิมพ์ครั้งที่</label><input id="e-edition" class="mono" value="${val('edition')}"></div>` +
+    `<div class="field"><label>ปีพิมพ์</label><input id="e-year" class="mono" value="${val('year')}"></div></div>` +
+    `<div class="row"><div class="field"><label>ISBN</label><input id="e-isbn" class="mono" value="${val('isbn')}"></div>` +
+    `<div class="field"><label>ราคาปก</label><input id="e-cover" class="mono" inputmode="decimal" value="${val('cover_price')}"></div></div>` +
+    F('เรื่องย่อ', `<textarea id="e-syn">${val('synopsis')}</textarea>`) +
+    `<h3 style="margin-top:16px;font-size:.88rem">เล่มที่มีอยู่จริง (${(t.copies || []).length})</h3>` +
+    `<div class="edit-copies">${(t.copies || []).map(c => `
+      <div class="edit-copy" data-copy="${c.id}">
+        <div class="code">${esc(c.code || '')} · ${c.status === 'sold' ? 'ขายแล้ว' : 'ในสต็อก'}</div>
+        <select class="e-grade">${gradeOptionsHTML(c.grade)}</select>
+        <input class="e-price mono" inputmode="decimal" value="${c.price ?? ''}" placeholder="ราคา">
+        <select class="e-shelf mono" style="grid-column:1/-1">${shelfOptionsHTML(c.shelf)}</select>
+      </div>`).join('') || '<p class="hint">ไม่มีเล่มในสต็อก</p>'}</div>`;
+  $('edit-box').hidden = false;
+}
+
+$('btn-edit-close').addEventListener('click', () => { $('edit-box').hidden = true; });
+$('edit-box').addEventListener('click', e => {
+  if (e.target === $('edit-box')) $('edit-box').hidden = true;
+});
+
+$('btn-edit-save').addEventListener('click', async () => {
+  if (!currentEditId) return;
+  const title = $('e-title').value.trim();
+  if (!title) { toast('ต้องมีชื่อหนังสือ', 'error'); return; }
+  const copies = Array.from(document.querySelectorAll('.edit-copy')).map(row => ({
+    id: Number(row.dataset.copy),
+    grade: row.querySelector('.e-grade').value,
+    price: row.querySelector('.e-price').value,
+    shelf: row.querySelector('.e-shelf').value,
+  }));
+  $('btn-edit-save').disabled = true;
+  const r = await post('title-save', {
+    id: currentEditId,
+    title, title_alt: $('e-title-alt').value.trim(),
+    author: $('e-author').value.trim(), translator: $('e-translator').value.trim(),
+    publisher: $('e-pub').value.trim(), category: $('e-category').value,
+    edition: $('e-edition').value.trim(), year: $('e-year').value.trim(),
+    isbn: $('e-isbn').value.trim(), cover_price: $('e-cover').value.trim(),
+    synopsis: $('e-syn').value.trim(), copies
+  });
+  $('btn-edit-save').disabled = false;
+  if (r.error) { toast(r.error, 'error'); return; }
+  CARD_DATA[r.title.id] = r.title;
+  toast(`บันทึกการแก้ไข "${r.title.title}" แล้ว`);
+  $('edit-box').hidden = true;
+  if (!$('tab-stock').hidden) loadStock();
 });
 
 /* ---------- คุยกับ AI ---------- */
@@ -868,6 +974,7 @@ function addMsg(role, html, extraClass) {
 }
 function addBooks(books) {
   if (!books || !books.length) return;
+  cacheCards(books);
   const log = $('chat-log');
   const div = document.createElement('div');
   div.className = 'msg-books';
@@ -981,8 +1088,10 @@ function setCategory(v, from) {
   badge.textContent = from === 'cover' ? 'จากปก' : from === 'guess' ? 'AI เดา — ตรวจด้วย' : '';
   markCatChip();
 }
+let ALL_CATEGORIES = [];
 get('categories').then(d => {
-  $('cat-chips').innerHTML = (d.categories || [])
+  ALL_CATEGORIES = d.categories || [];
+  $('cat-chips').innerHTML = ALL_CATEGORIES
     .map(c => `<button type="button" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
   $('cat-chips').querySelectorAll('button').forEach(b => {
     b.addEventListener('click', () => {
@@ -1047,13 +1156,16 @@ async function addShelf() {
   await loadShelves(r.zone, r.code);   // เลือกชั้นที่เพิ่งสร้างให้เลย จะได้ใช้ต่อทันที
 }
 
-// รายการชั้นแบบ dropdown — ใช้ในหน้ารับซื้อ เพราะเลือกครั้งเดียวจบ ไม่ได้ทำไล่ทีละชั้น
-function shelfSelectHTML(id) {
-  const opts = shelfZones.map(z =>
+// รายการชั้นแบบ dropdown — ใช้ในหน้ารับซื้อกับหน้าแก้ไข เพราะเลือกครั้งเดียวจบ ไม่ได้ทำไล่ทีละชั้น
+function shelfOptionsHTML(selected) {
+  return shelfZones.map(z =>
     `<optgroup label="โซน ${esc(z.zone)}">` +
-    z.shelves.map(s => `<option value="${esc(s.code)}"${s.code === curShelf ? ' selected' : ''}>` +
+    z.shelves.map(s => `<option value="${esc(s.code)}"${s.code === selected ? ' selected' : ''}>` +
       `${esc(s.code)} (${s.count} เล่ม)</option>`).join('') + '</optgroup>').join('');
-  return `<select id="${id}" class="mono"><option value="">— เลือกชั้น —</option>${opts}</select>`;
+}
+function shelfSelectHTML(id) {
+  return `<select id="${id}" class="mono"><option value="">— เลือกชั้น —</option>` +
+    shelfOptionsHTML(curShelf) + '</select>';
 }
 
 async function loadShelves(pickZone, pickShelf) {
@@ -1553,6 +1665,17 @@ async function loadStats() {
     <h3>สติกเกอร์ติดหลังเล่ม</h3>
     <p class="hint">ติดหลังเล่มก่อนขึ้นชั้น — คราวหน้าลูกค้าเอามาขายคืน สแกนใบนี้แล้วระบบรู้ราคาทันที</p>
     <div id="sticker-wrap"></div>
+  </div>
+</div>
+<div id="edit-box" hidden>
+  <div class="sticker-panel edit-panel">
+    <h3>แก้ไขรายละเอียดหนังสือ</h3>
+    <p class="hint">แก้ได้ทุกช่อง รวมราคา/สภาพ/ชั้นวางของแต่ละเล่มจริง</p>
+    <div id="edit-form"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="btn-edit-save">บันทึกการแก้ไข</button>
+      <button class="btn ghost" style="flex:none" id="btn-edit-close">ปิด</button>
+    </div>
   </div>
 </div>
 <div id="sticker-print-host"></div>

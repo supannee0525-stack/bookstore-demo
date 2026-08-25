@@ -1245,6 +1245,59 @@ def api_copy_lookup(code):
     }
 
 
+def api_title_save(p):
+    """แก้ไขรายละเอียดหนังสือ — ข้อมูลชื่อเรื่อง (ใช้ร่วมทุกเล่ม) + แต่ละเล่มจริง
+
+    รวมไว้ endpoint เดียว ให้พนักงานกดบันทึกครั้งเดียวจบ ไม่ต้องแยกฟอร์ม
+    สำคัญเพราะ AI อ่านปกพลาดได้ (วรรณยุกต์/หมวดหมู่) พนักงานต้องแก้ทีหลังได้เสมอ
+    """
+    tid = p.get("id")
+    if not tid:
+        return {"error": "ไม่มีรหัสหนังสือ"}
+    title = (p.get("title") or "").strip()
+    if not title:
+        return {"error": "ต้องมีชื่อหนังสือ"}
+    conn = db()
+    if not conn.execute("SELECT 1 FROM titles WHERE id=?", (tid,)).fetchone():
+        conn.close()
+        return {"error": "ไม่พบหนังสือเล่มนี้ในระบบ"}
+    conn.execute(
+        "UPDATE titles SET isbn=?, title=?, title_alt=?, author=?, translator=?,"
+        " publisher=?, category=?, edition=?, year=?, synopsis=?, cover_price=?"
+        " WHERE id=?",
+        (p.get("isbn") or None, title, p.get("title_alt"), p.get("author"),
+         p.get("translator"), p.get("publisher"), p.get("category"),
+         p.get("edition"), p.get("year"), p.get("synopsis"),
+         float(p.get("cover_price") or 0) or None, tid),
+    )
+
+    for c in p.get("copies") or []:
+        cid = c.get("id")
+        if not cid or not conn.execute(
+                "SELECT 1 FROM copies WHERE id=? AND title_id=?", (cid, tid)).fetchone():
+            continue   # กันแก้เล่มของหนังสือเรื่องอื่นด้วยการปลอม id
+        try:
+            shelf = _ensure_shelf(conn, c.get("shelf") or "")
+        except ValueError as exc:
+            conn.close()
+            return {"error": str(exc)}
+        conn.execute(
+            "UPDATE copies SET grade=?, price=?, cost=?, shelf=? WHERE id=?",
+            (c.get("grade") or "B", float(c.get("price") or 0),
+             float(c.get("cost") or 0), shelf, cid),
+        )
+
+    conn.commit()
+    row = dict(conn.execute("SELECT * FROM titles WHERE id=?", (tid,)).fetchone())
+    copies = [dict(r) for r in conn.execute(
+        "SELECT * FROM copies WHERE title_id=? ORDER BY"
+        " CASE grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END", (tid,))]
+    conn.close()
+    row["copies"] = copies
+    row["in_stock"] = sum(1 for c in copies if c["status"] == "in_stock")
+    return {"ok": True, "title": row}
+
+
 def api_buyback_quote(p):
     """เสนอราคารับซื้อ
 
@@ -1510,6 +1563,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_buyback_accept(p))
         if path == "/api/shelf-add":
             return self._send(200, api_shelf_add(p))
+        if path == "/api/title-save":
+            return self._send(200, api_title_save(p))
         if path == "/api/reset":
             DB.unlink(missing_ok=True)
             init_db()
