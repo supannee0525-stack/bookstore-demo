@@ -4,3 +4,4 @@ __pycache__/
 .env
 typhoon_test_result.json
 reads.jsonl
+covers/

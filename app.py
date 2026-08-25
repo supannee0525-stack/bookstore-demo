@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """ระบบร้านหนังสือมือสอง — เดโมสำหรับนำเสนอลูกค้า
-stdlib only: http.server + sqlite3 + urllib (ไม่ต้องลง package)
+stdlib เป็นหลัก (http.server + sqlite3 + urllib) — ยกเว้น Pillow ที่ใช้ย่อรูปปก
+ก่อนบันทึก (ติดตั้งไว้บนเครื่องแล้วผ่าน apt ไม่ต้องผ่าน pip)
 """
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -16,6 +18,8 @@ import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from PIL import Image
 
 BASE = Path(__file__).parent
 DB = BASE / "shop.db"
@@ -231,7 +235,7 @@ def init_db():
     conn.executescript(SCHEMA)
     # เพิ่มคอลัมน์ใหม่ให้ฐานข้อมูลเดิมที่มีข้อมูลอยู่แล้ว (ไม่ต้องล้างข้อมูล)
     have = {r["name"] for r in conn.execute("PRAGMA table_info(titles)")}
-    for col in ("title_alt", "translator", "category", "edition"):
+    for col in ("title_alt", "translator", "category", "edition", "cover_path"):
         if col not in have:
             conn.execute(f"ALTER TABLE titles ADD COLUMN {col} TEXT")
     # code = รหัสบนสติกเกอร์ที่ร้านติดหลังเล่ม (บาร์โค้ดของร้านเอง ไม่ใช่ ISBN)
@@ -1026,6 +1030,10 @@ def api_chat(history, mode="staff"):
         links = [{"label": f"รีวิว “{t['title']}” ใน Google", "url": _review_url(t)}
                  for t in books[:3]]
 
+    # โหมดลูกค้าไม่มีการ์ด (books ถูกล้างท้ายฟังก์ชัน) จึงส่งแค่ปกให้โชว์ในแชทแทน
+    covers = ([{"title": b["title"], "file": b["cover_path"]}
+               for b in books if b.get("cover_path")][:4]) if is_customer else []
+
     try:
         r = _chat_completion(convo)
         reply = (r["choices"][0]["message"].get("content") or "").strip()
@@ -1043,7 +1051,8 @@ def api_chat(history, mode="staff"):
     reply = re.sub(r"\n{3,}", "\n\n", reply).strip()
     return {"reply": reply,
             "books": [] if is_customer else books,   # โหมดลูกค้า = ไม่ส่งการ์ด
-            "links": links}
+            "links": links,
+            "covers": covers}
 
 
 def suggest_price(cover_price, grade):
@@ -1083,6 +1092,19 @@ def api_stockin(p):
     # รหัสสติกเกอร์ผูกกับ id ของเล่ม จึงไม่ซ้ำกันแน่นอน ไม่ต้องสุ่มแล้วเช็คชน
     code = copy_code(cur.lastrowid)
     conn.execute("UPDATE copies SET code=? WHERE id=?", (code, cur.lastrowid))
+
+    # เก็บรูปปกหน้าไว้ครั้งแรกที่เจอ (ครั้งต่อไปที่ลงเล่มเดียวกันไม่ต้องเขียนทับ)
+    # ให้เห็นแค่พอบอกว่าเป็นเล่มไหน ไม่ใช่ภาพคุณภาพสูงสำหรับพิสูจน์สภาพ
+    cover_b64 = p.get("cover_image")
+    if cover_b64:
+        cur_cover = conn.execute("SELECT cover_path FROM titles WHERE id=?", (tid,)).fetchone()
+        if not (cur_cover and cur_cover["cover_path"]):
+            try:
+                fname = save_cover(tid, cover_b64)
+                conn.execute("UPDATE titles SET cover_path=? WHERE id=?", (fname, tid))
+            except Exception:
+                pass   # รูปปกเป็นของเสริม ถ้าเสียหายไม่ควรทำให้บันทึกสต็อกล้มไปด้วย
+
     conn.commit()
     row = conn.execute("SELECT * FROM titles WHERE id=?", (tid,)).fetchone()
     conn.close()
@@ -1194,6 +1216,29 @@ def _ensure_shelf(conn, code):
         conn.execute("INSERT INTO shelves(code, zone, created_at) VALUES(?,?,?)",
                      (code, code[0], now()))
     return code
+
+
+COVERS_DIR = BASE / "covers"
+COVERS_DIR.mkdir(exist_ok=True)
+COVER_MAX_W = 420   # แค่พอโชว์ในแชท/การ์ด ไม่ใช่ภาพเก็บถาวรคุณภาพสูง
+
+
+def save_cover(title_id, image_b64):
+    """ย่อรูปปกหน้าให้เล็กแล้วบันทึกเป็นไฟล์ .jpg คืนชื่อไฟล์ (ไม่ใช่ path เต็ม)
+
+    ย่อก่อนเก็บเพราะรูปจากมือถือมักเป็นไฟล์หลาย MB ต่อรูป
+    ถ้าเก็บดิบไว้ทั้ง 10,000 เล่ม จะกินพื้นที่หลัก GB โดยไม่จำเป็น —
+    ภาพขนาดนี้เพียงพอสำหรับโชว์เป็นรูปย่อในแชทและการ์ดค้นหา
+    """
+    raw = base64.b64decode(image_b64)
+    im = Image.open(io.BytesIO(raw))
+    im = im.convert("RGB")
+    if im.width > COVER_MAX_W:
+        h = round(im.height * COVER_MAX_W / im.width)
+        im = im.resize((COVER_MAX_W, h), Image.LANCZOS)
+    fname = f"{title_id}.jpg"
+    im.save(COVERS_DIR / fname, "JPEG", quality=82)
+    return fname
 
 
 def copy_code(copy_id):
@@ -1464,6 +1509,15 @@ class Handler(BaseHTTPRequestHandler):
             # ไลบรารีอ่านบาร์โค้ดจากกล้อง — เสิร์ฟจากเครื่องเราเอง ไม่พึ่ง CDN ภายนอก
             return self._send(200, (BASE / "zxing.min.js").read_bytes(),
                               "application/javascript; charset=utf-8")
+        if path.startswith("/api/cover/"):
+            # รูปปกต้องให้บัญชีลูกค้าดูได้ด้วย (โชว์ในแชท) จึงเสิร์ฟก่อนเช็คสิทธิ์ด้านล่าง
+            fname = path.rsplit("/", 1)[-1]
+            if not re.fullmatch(r"\d+\.jpg", fname):
+                return self._send(400, {"error": "รหัสรูปไม่ถูกต้อง"})
+            fpath = COVERS_DIR / fname
+            if not fpath.is_file():
+                return self._send(404, {"error": "ไม่มีรูปปก"})
+            return self._send(200, fpath.read_bytes(), "image/jpeg")
 
         # บัญชีลูกค้าเข้าได้แค่แชท — กันที่เซิร์ฟเวอร์ ไม่ใช่แค่ซ่อนแท็บในหน้าเว็บ
         # (ถ้ากันแค่หน้าเว็บ ลูกค้าเปิด URL /api/stats ตรงๆ ก็เห็นข้อมูลร้านทั้งหมด)

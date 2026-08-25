@@ -139,6 +139,12 @@ button.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
   padding:16px;margin-bottom:12px;box-shadow:var(--shadow-sm);
 }
+.card-top{display:flex;gap:12px}
+.card-main{flex:1;min-width:0}
+.cover-thumb{
+  width:64px;height:88px;flex:none;object-fit:cover;border-radius:8px;
+  border:1px solid var(--line);background:var(--panel-2);
+}
 .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .card h3{margin:0 0 2px;font-size:1.02rem;font-weight:700;font-family:'Chakra Petch','Kanit',sans-serif}
 .card .meta{font-size:.82rem;color:var(--muted);margin:0 0 8px}
@@ -322,6 +328,8 @@ td.num{text-align:right}
 .mode-box b{display:block;font-size:.86rem;font-weight:600}
 .mode-box em{display:block;font-style:normal;font-size:.68rem;color:var(--muted);line-height:1.45;margin-top:2px}
 .mode input:checked + .mode-box{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.msg-covers{display:flex;gap:8px;margin:8px 0 0;flex-wrap:wrap}
+.cover-chat{width:72px;height:100px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 .msg-links{display:flex;flex-direction:column;gap:5px;margin:6px 0 0}
 .msg-links a{
   font-size:.76rem;color:var(--accent-2);text-decoration:none;
@@ -788,26 +796,37 @@ document.querySelectorAll('nav button').forEach(b => {
 });
 
 /* ---------- การ์ดหนังสือ (ใช้ร่วมกันในแชท) ---------- */
+function coverImgHTML(coverPath, title, cls) {
+  return coverPath
+    ? `<img class="${cls}" src="api/cover/${encodeURIComponent(coverPath)}" alt="ปก ${esc(title || '')}" loading="lazy">`
+    : '';
+}
+
 function bookCardHTML(t) {
   return `
     <div class="card">
-      <div class="card-head">
-        <h3>${esc(t.title)}</h3>
-        <button class="btn ghost sm" data-edit="${t.id}" style="flex:none">แก้ไข</button>
+      <div class="card-top">
+        ${coverImgHTML(t.cover_path, t.title, 'cover-thumb')}
+        <div class="card-main">
+          <div class="card-head">
+            <h3>${esc(t.title)}</h3>
+            <button class="btn ghost sm" data-edit="${t.id}" style="flex:none">แก้ไข</button>
+          </div>
+          ${t.title_alt ? `<p class="meta" style="margin:0 0 4px">${esc(t.title_alt)}</p>` : ''}
+          <p class="meta">${esc(t.author || 'ไม่ระบุผู้เขียน')}${t.translator ? ' · แปล ' + esc(t.translator) : ''}
+            · ${esc(t.publisher || '-')} ${esc(t.year || '')}${t.edition ? ' · พิมพ์ครั้งที่ ' + esc(t.edition) : ''}
+            · ${t.isbn ? '<span class="mono">' + esc(t.isbn) + '</span>'
+                      : '<span class="badge medium">ไม่มี ISBN · AI อ่านปก</span>'}
+            ${t.category ? '<span class="badge high">' + esc(t.category) + '</span>' : ''}</p>
+          ${t.synopsis ? `<p class="syn">${esc(t.synopsis)}</p>` : ''}
+          <a class="review-link" target="_blank" rel="noopener noreferrer"
+             href="https://www.google.com/search?q=${encodeURIComponent(
+               [t.title, t.title_alt, t.author, 'รีวิว หนังสือ'].filter(Boolean).join(' '))}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
+            ดูรีวิวเล่มนี้ใน Google
+          </a>
+        </div>
       </div>
-      ${t.title_alt ? `<p class="meta" style="margin:0 0 4px">${esc(t.title_alt)}</p>` : ''}
-      <p class="meta">${esc(t.author || 'ไม่ระบุผู้เขียน')}${t.translator ? ' · แปล ' + esc(t.translator) : ''}
-        · ${esc(t.publisher || '-')} ${esc(t.year || '')}${t.edition ? ' · พิมพ์ครั้งที่ ' + esc(t.edition) : ''}
-        · ${t.isbn ? '<span class="mono">' + esc(t.isbn) + '</span>'
-                  : '<span class="badge medium">ไม่มี ISBN · AI อ่านปก</span>'}
-        ${t.category ? '<span class="badge high">' + esc(t.category) + '</span>' : ''}</p>
-      ${t.synopsis ? `<p class="syn">${esc(t.synopsis)}</p>` : ''}
-      <a class="review-link" target="_blank" rel="noopener noreferrer"
-         href="https://www.google.com/search?q=${encodeURIComponent(
-           [t.title, t.title_alt, t.author, 'รีวิว หนังสือ'].filter(Boolean).join(' '))}">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
-        ดูรีวิวเล่มนี้ใน Google
-      </a>
       <div class="copies">
         ${t.copies.map(c => `
           <div class="copy ${c.status === 'sold' ? 'sold' : ''}">
@@ -1029,7 +1048,12 @@ async function sendChat(text) {
       addMsg('bot', esc(r.error), 'err');
     } else {
       let html = esc(r.reply || '(ไม่มีคำตอบ)');
-      // โหมดลูกค้าไม่มีการ์ด — ลิงก์รีวิวจึงแนบไว้ในข้อความแชทเลย
+      // โหมดลูกค้าไม่มีการ์ด — ปกกับลิงก์รีวิวจึงแนบไว้ในข้อความแชทเลย
+      if (r.covers && r.covers.length) {
+        html += '<div class="msg-covers">' + r.covers.map(c =>
+          coverImgHTML(c.file, c.title, 'cover-chat')
+        ).join('') + '</div>';
+      }
       if (r.links && r.links.length) {
         html += '<div class="msg-links">' + r.links.map(l =>
           `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">🔍 ${esc(l.label)}</a>`
@@ -1476,7 +1500,8 @@ $('btn-save').addEventListener('click', async () => {
     cover_price: $('f-cover').value, grade,
     price: $('f-price').value, cost: Math.round(($('f-price').value || 0) * 0.4),
     shelf: $('f-shelf').value.trim().toUpperCase(),
-    source: foundTitleId ? 'isbn' : (shotCount() > 0 ? 'ai_cover' : 'manual')
+    source: foundTitleId ? 'isbn' : (shotCount() > 0 ? 'ai_cover' : 'manual'),
+    cover_image: shots.front || null   // เก็บไว้โชว์ในแชทลูกค้า/การ์ดค้นหา
   };
   if (!payload.title) { toast('ต้องมีชื่อหนังสือ', 'error'); return; }
   if (!payload.shelf) { toast('ต้องระบุชั้นวาง', 'error'); return; }
