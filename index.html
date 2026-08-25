@@ -386,6 +386,8 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
 #cmp td:first-child{color:var(--muted);white-space:nowrap;width:1%}
 #cmp tr.diff td{background:rgba(47,123,255,.07)}
 #cmp tr.diff td:first-child{color:var(--accent-2)}
+#cmp tr.cmp-time td{background:var(--panel-2);font-weight:600;border-bottom:2px solid var(--line)}
+#cmp tr.cmp-time td:first-child{color:var(--muted);font-weight:500}
 #cmp .cmp-foot{display:flex;gap:8px;padding:9px;background:var(--panel-2);flex-wrap:wrap}
 #cmp .cmp-note{padding:8px 9px;font-size:.74rem;color:var(--muted);line-height:1.5}
 .engine-pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:7px;margin-top:10px}
@@ -595,10 +597,17 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
             <em>โมเดลเปิด · ลง Mac ได้ (ต้องแรม 32GB)</em>
           </span>
         </label>
+        <label class="eng">
+          <input type="radio" name="engine" value="typhoon-local">
+          <span class="eng-box">
+            <b>Typhoon (GPU เช่า)</b>
+            <em>รันจริงบนการ์ดจอ · วัดความเร็วจริง</em>
+          </span>
+        </label>
       </div>
       <div class="row" style="margin-top:8px">
         <button class="btn sm" id="btn-ai" disabled>ให้ AI อ่าน</button>
-        <button class="btn ghost sm" id="btn-compare" disabled style="flex:none">เทียบ 3 โมเดล</button>
+        <button class="btn ghost sm" id="btn-compare" disabled style="flex:none">เทียบ 4 โมเดล</button>
         <button class="btn ghost sm" id="btn-clear-shots" style="flex:none">ล้างรูป</button>
       </div>
       <div id="cmp" hidden></div>
@@ -1335,10 +1344,15 @@ function resizeToB64(dataUrl, fallbackB64) {
   });
 }
 
+// จับเวลาทั้งหมดต่อเล่ม — เริ่มนับตอนถ่ายรูปแรกของเล่มนี้ จนกว่าจะกดบันทึกหรือล้างรูป
+// ใช้เทียบกับแรงงานคนตอนพรีเซนต์ลูกค้า (ไม่ใช่แค่เวลา AI แต่รวมเวลาคนตรวจ/แก้ด้วย)
+let bookStartTime = null;
+
 document.querySelectorAll('.shot-slot input[type=file]').forEach(inp => {
   inp.addEventListener('change', e => {
     const f = e.target.files[0];
     if (!f) return;
+    if (bookStartTime === null) bookStartTime = Date.now();
     const slot = inp.dataset.slot;
     const box = inp.closest('.shot-slot');
     const fr = new FileReader();
@@ -1366,6 +1380,7 @@ $('btn-clear-shots').addEventListener('click', () => {
   $('ai-msg').textContent = '';
   $('ocr-raw').hidden = true;
   $('cmp').hidden = true;
+  bookStartTime = null;   // เล่มนี้จบแล้ว (บันทึกแล้วหรือล้างทิ้ง) เริ่มจับเวลาใหม่ตอนถ่ายรูปเล่มถัดไป
 });
 
 $('btn-ai').addEventListener('click', async () => {
@@ -1409,6 +1424,7 @@ function applyRead(r) {
     : '';
   $('ai-msg').innerHTML = `<span class="badge ${esc(conf)}">${esc(label)}</span> ` +
     `AI เติมข้อมูลให้แล้ว — <strong>ตรวจก่อนบันทึกทุกครั้ง</strong>` +
+    (r.elapsed_ms ? ` <span class="mono" style="font-size:.75rem;color:var(--accent-2)">อ่านใช้เวลา ${(r.elapsed_ms/1000).toFixed(1)}s</span>` : '') +
     (r.usage ? ` <span class="mono" style="font-size:.75rem">(${r.usage.in}+${r.usage.out} tokens)</span>` : '') +
     warn;
 
@@ -1433,7 +1449,8 @@ const CMP_FIELDS = [
 const ENGINES = [
   {id: 'typhoon', name: 'Typhoon', note: 'รันเองได้'},
   {id: 'gemini',  name: 'Gemini',  note: 'คลาวด์'},
-  {id: 'qwen',    name: 'Qwen 27B', note: 'ลง Mac ได้'}
+  {id: 'qwen',    name: 'Qwen 27B', note: 'ลง Mac ได้'},
+  {id: 'typhoon-local', name: 'Typhoon (GPU)', note: 'รันจริงบนการ์ดจอ'}
 ];
 
 $('btn-compare').addEventListener('click', async () => {
@@ -1449,6 +1466,10 @@ $('btn-compare').addEventListener('click', async () => {
     res.push(await post('ai-read', {images: images, media_type: 'image/jpeg', engine: ENGINES[i].id}));
   }
   $('btn-compare').disabled = false; $('btn-ai').disabled = false;
+
+  const timeRow = `<tr class="cmp-time"><td>เวลาที่ใช้</td>` +
+    res.map(r => `<td class="mono">${r.elapsed_ms ? (r.elapsed_ms / 1000).toFixed(1) + 's' : '—'}</td>`).join('') +
+    `</tr>`;
 
   let nDiff = 0;
   const rows = CMP_FIELDS.map(([k, th]) => {
@@ -1470,11 +1491,11 @@ $('btn-compare').addEventListener('click', async () => {
   $('cmp').innerHTML =
     `<div class="cmp-scroll"><table><thead><tr><th>ช่อง</th>` +
     ENGINES.map(e => `<th>${esc(e.name)}<br><span style="font-weight:400">${esc(e.note)}</span></th>`).join('') +
-    `</tr></thead><tbody>${rows}</tbody></table></div>` +
+    `</tr></thead><tbody>${timeRow}${rows}</tbody></table></div>` +
     (errNote ? `<p class="cmp-note"><span class="badge low">ผิดพลาด</span> ${errNote}</p>` : '') +
     `<p class="cmp-note">${nDiff
       ? `ต่างกัน <strong>${nDiff}</strong> ช่อง (แถบสีน้ำเงิน) — เทียบกับปกจริงในมือ แล้วเลือกโมเดลที่อ่านถูก`
-      : 'ทั้ง 3 โมเดลอ่านได้ตรงกันทุกช่อง'}</p>` +
+      : `ทั้ง ${ENGINES.length} โมเดลอ่านได้ตรงกันทุกช่อง`}</p>` +
     `<div class="cmp-foot">` +
     ENGINES.map((e, i) => `<button class="btn ${i === 1 ? '' : 'ghost'} sm" data-use="${i}">ใช้ผล ${esc(e.name)}</button>`).join('') +
     `</div>`;
@@ -1504,7 +1525,9 @@ $('btn-save').addEventListener('click', async () => {
     source: foundTitleId ? 'isbn' : (shotCount() > 0 ? 'ai_cover' : 'manual'),
     // เก็บรูปทุกใบที่ถ่ายไว้ (ไม่ใช่แค่ปกหน้า) ไว้โชว์ในแชทลูกค้า/การ์ดค้นหา
     // เผื่อลูกค้าขอดูรูปเพิ่มก่อนตัดสินใจซื้อ
-    cover_images: Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]}))
+    cover_images: Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]})),
+    // เวลารวมตั้งแต่ถ่ายรูปแรกของเล่มนี้จนถึงตอนกดบันทึก — ไว้คำนวณเวลาเฉลี่ย/เล่มจริง
+    elapsed_ms: bookStartTime ? Date.now() - bookStartTime : null
   };
   if (!payload.title) { toast('ต้องมีชื่อหนังสือ', 'error'); return; }
   if (!payload.shelf) { toast('ต้องระบุชั้นวาง', 'error'); return; }
@@ -1655,8 +1678,33 @@ function statsSkeleton() {
 
 async function loadStats() {
   $('stats').innerHTML = statsSkeleton();
-  const s = await get('stats');
-  $('stats').innerHTML = `
+  const [s, t] = await Promise.all([get('stats'), get('timing-stats')]);
+  const engRows = Object.entries(t.ai_read_by_engine || {}).map(([eng, v]) => `
+    <tr><td>${esc(eng)}</td><td class="num mono">${(v.avg_ms/1000).toFixed(1)}s</td>
+      <td class="num mono">${(v.median_ms/1000).toFixed(1)}s</td>
+      <td class="num mono">${(v.min_ms/1000).toFixed(1)}–${(v.max_ms/1000).toFixed(1)}s</td>
+      <td class="num mono">${v.n}</td></tr>`).join('');
+  const timingCard = `
+    <div class="card">
+      <h3>เวลาที่วัดได้จริง — สำหรับพรีเซนต์ลูกค้า</h3>
+      <p class="meta">จับเวลาอัตโนมัติทุกครั้งที่ใช้งานจริง ไม่ใช่ตัวเลขประมาณการ</p>
+      ${engRows ? `<div class="scroll-x"><table>
+        <thead><tr><th>โมเดล</th><th class="num">เฉลี่ย</th><th class="num">มัธยฐาน</th>
+          <th class="num">ต่ำสุด–สูงสุด</th><th class="num">จำนวนครั้ง</th></tr></thead>
+        <tbody>${engRows}</tbody></table></div>`
+        : '<p class="hint" style="margin:0 0 10px">ยังไม่มีข้อมูล — ลองอ่านปกในแท็บลงสต็อกก่อน</p>'}
+      ${t.per_book ? `
+        <div class="tiles" style="margin-top:12px">
+          <div class="tile"><p class="k">เวลาเฉลี่ย/เล่ม (รวมคนตรวจ)</p>
+            <p class="v">${(t.per_book.avg_ms/1000).toFixed(1)}<small>s</small></p></div>
+          <div class="tile"><p class="k">ประเมิน 10,000 เล่ม</p>
+            <p class="v">${t.per_book.est_10000_books_hours}<small>ชม.</small></p></div>
+          <div class="tile"><p class="k">จำนวนเล่มที่วัดได้</p>
+            <p class="v">${t.per_book.n}</p></div>
+        </div>` : `<p class="hint" style="margin:10px 0 0">
+          ยังไม่มีข้อมูลเวลารวมต่อเล่ม — เกิดจากถ่ายรูปเล่มแรกจนกดบันทึกเข้าสต็อกสำเร็จ</p>`}
+    </div>`;
+  $('stats').innerHTML = `${timingCard}
     <div class="tiles">
       <div class="tile"><p class="k">รายการหนังสือ (ชื่อเรื่อง)</p><p class="v">${s.titles.toLocaleString('th-TH')}</p></div>
       <div class="tile"><p class="k">เล่มคงเหลือ</p><p class="v">${s.in_stock.toLocaleString('th-TH')}</p></div>

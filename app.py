@@ -461,6 +461,63 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 QWEN_MODEL = "qwen/qwen3.8-27b"   # โมเดลเปิด ดาวน์โหลดมารันบนเครื่องเองได้ = ตัวเลือก Local จริง
 
 
+OLLAMA_OCR_MODEL = "scb10x/typhoon-ocr1.5-3b"
+OLLAMA_FIELD_MODEL = "scb10x/typhoon2.5-qwen3-30b-a3b"
+
+
+def _ollama_post(path, body, timeout=180):
+    url = _cfg("RUNPOD_OLLAMA_URL")
+    if not url:
+        raise RuntimeError("ไม่พบ RUNPOD_OLLAMA_URL — ต้องเปิด GPU เช่าไว้ก่อน (URL เปลี่ยนทุกครั้งที่เปิด pod ใหม่)")
+    req = urllib.request.Request(
+        url.rstrip("/") + path, data=json.dumps(body).encode(),
+        # Cloudflare (หน้าโปรกซีของ RunPod) บล็อก User-Agent เริ่มต้นของ Python ด้วย 403
+        # ต้องปลอมเป็น curl ไม่งั้นยิงไม่ผ่านเลย (เจอตอนทดสอบจริง)
+        headers={"Content-Type": "application/json", "User-Agent": "curl/8.5.0"})
+    return json.load(urllib.request.urlopen(req, timeout=timeout))
+
+
+def _typhoon_local_read(images, media_type):
+    """ทางเลือกที่ 4 — Typhoon ตัวเดียวกับ engine="typhoon" แต่รันบนการ์ดจอที่เช่าไว้ชั่วคราว
+    (RunPod) ไม่ใช่ยิงไปคลาวด์ของ Typhoon เอง — ใช้วัดความเร็วจริงถ้าซื้อเครื่องมาลงเอง
+    ความแม่นยำเหมือน engine="typhoon" ทุกอย่างเพราะเป็นน้ำหนักโมเดลเดียวกัน
+    """
+    raw_by_image, in_tok, out_tok = [], 0, 0
+    for i, im in enumerate(images[:3]):
+        b64 = im.get("image_b64") or ""
+        if not b64:
+            continue
+        label = im.get("label") or f"รูปที่ {i + 1}"
+        try:
+            r = _ollama_post("/api/generate", {
+                "model": OLLAMA_OCR_MODEL, "prompt": OCR_PROMPT,
+                "images": [b64], "stream": False})
+        except Exception as exc:
+            raw_by_image.append({"label": label, "text": "", "error": str(exc)})
+            continue
+        raw_by_image.append({"label": label, "text": (r.get("response") or "").strip()})
+        in_tok += r.get("prompt_eval_count") or 0
+        out_tok += r.get("eval_count") or 0
+
+    combined = "\n\n".join(f"[{p['label']}]\n{p['text']}"
+                           for p in raw_by_image if p.get("text"))
+    if not combined.strip():
+        return {"error": "OCR อ่านข้อความจากภาพไม่ได้ (เช็คว่า GPU เช่ายังเปิดอยู่ไหม)",
+                "raw_by_image": raw_by_image}
+
+    try:
+        r2 = _ollama_post("/api/generate",
+                          {"model": OLLAMA_FIELD_MODEL, "prompt": FIELD_PROMPT + combined,
+                           "stream": False}, timeout=240)
+    except Exception as exc:
+        return {"error": f"แยกช่องข้อมูลไม่สำเร็จ: {exc}",
+                "raw_text": combined, "raw_by_image": raw_by_image}
+
+    u2 = {"prompt_tokens": r2.get("prompt_eval_count") or 0,
+          "completion_tokens": r2.get("eval_count") or 0}
+    return _finish_read(r2.get("response", ""), combined, raw_by_image, in_tok, out_tok, u2)
+
+
 def _qwen_read(images, media_type):
     """ทางเลือกที่ 3 — Qwen ผ่าน OpenRouter (อ่าน + แยกช่อง ครั้งเดียวจบ)
 
@@ -548,6 +605,14 @@ def api_ai_read(images, media_type, engine="typhoon"):
             return {"error": f"{name} อ่านภาพไม่สำเร็จ: {exc}"}
         return _finish_read(out, "", [], 0, 0, u2)
 
+    if engine == "typhoon-local":
+        # โมเดลเดียวกับ Typhoon คลาวด์ แต่รันบน GPU เช่าจริง — 2 ขั้นเหมือนกัน
+        # จึงคืน dict สำเร็จรูปจากในฟังก์ชันเลย ไม่ใช่ (text, usage) แบบ ONE_SHOT
+        try:
+            return _typhoon_local_read(images, media_type)
+        except Exception as exc:
+            return {"error": f"Typhoon (GPU เช่า) อ่านภาพไม่สำเร็จ: {exc}"}
+
     # ขั้นที่ 1 — OCR ทุกรูป
     raw_by_image, in_tok, out_tok = [], 0, 0
     for i, im in enumerate(images[:3]):  # จำกัด 3 รูปต่อเล่ม
@@ -589,9 +654,27 @@ def api_ai_read(images, media_type, engine="typhoon"):
 
 
 READ_LOG = BASE / "reads.jsonl"
+TIMING_LOG = BASE / "timings.jsonl"
 
 
-def _log_read(engine, n_images, res):
+def _log_timing(title, source, elapsed_ms, n_images):
+    """เวลารวมต่อเล่ม — จากถ่ายรูปครั้งแรกถึงกดบันทึกเข้าสต็อก (นับที่ฝั่งมือถือ ส่งมาให้)
+    ใช้คำนวณเวลาเฉลี่ยต่อเล่มจริง สำหรับเทียบกับแรงงานคนตอนพรีเซนต์ลูกค้า
+    """
+    if not elapsed_ms:
+        return
+    try:
+        with TIMING_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "title": title, "source": source,
+                "elapsed_ms": elapsed_ms, "n_images": n_images,
+            }, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _log_read(engine, n_images, res, elapsed_ms=None):
     """เก็บผลอ่านทุกครั้งลงไฟล์ ไว้วิเคราะห์ความแม่นย้อนหลังตอนทดสอบกับปกจริง"""
     try:
         with READ_LOG.open("a", encoding="utf-8") as f:
@@ -599,6 +682,7 @@ def _log_read(engine, n_images, res):
                 "at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "engine": engine,
                 "n_images": n_images,
+                "elapsed_ms": elapsed_ms,   # เวลาที่ AI ใช้อ่านจริง (วัดจากเซิร์ฟเวอร์)
                 "error": res.get("error"),
                 "raw": res.get("raw"),   # คำตอบดิบตอนแกะ JSON ไม่ได้ — ไว้ไล่หาสาเหตุ
                 "extracted": res.get("extracted"),
@@ -1156,6 +1240,58 @@ def api_sell(copy_id):
             "shelf": c["shelf"], "profit": profit}
 
 
+def api_timing_stats():
+    """สรุปเวลาที่วัดได้จริง — ใช้ตอนพรีเซนต์ลูกค้าว่า AI เร็วแค่ไหนจริงๆ
+
+    2 ชุดข้อมูล: เวลา AI อ่านจริง (วัดจากเซิร์ฟเวอร์ แม่นเป๊ะ ไม่รวม network)
+    และเวลารวมต่อเล่ม (จากถ่ายรูปครั้งแรกถึงกดบันทึก วัดจากมือถือ รวมเวลาคนตรวจ/แก้ด้วย)
+    """
+    by_engine = {}
+    if READ_LOG.exists():
+        for line in READ_LOG.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ms = r.get("elapsed_ms")
+            if not ms or r.get("error"):
+                continue
+            e = by_engine.setdefault(r.get("engine", "?"), [])
+            e.append(ms)
+
+    engines = {}
+    for eng, vals in by_engine.items():
+        vals.sort()
+        engines[eng] = {
+            "n": len(vals),
+            "avg_ms": round(sum(vals) / len(vals)),
+            "median_ms": vals[len(vals) // 2],
+            "min_ms": vals[0], "max_ms": vals[-1],
+        }
+
+    book_ms = []
+    if TIMING_LOG.exists():
+        for line in TIMING_LOG.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r.get("elapsed_ms"):
+                book_ms.append(r["elapsed_ms"])
+
+    book_stats = None
+    if book_ms:
+        book_ms.sort()
+        avg = sum(book_ms) / len(book_ms)
+        book_stats = {
+            "n": len(book_ms), "avg_ms": round(avg), "median_ms": book_ms[len(book_ms) // 2],
+            "min_ms": book_ms[0], "max_ms": book_ms[-1],
+            "est_10000_books_hours": round(avg * 10000 / 1000 / 3600, 1),
+        }
+
+    return {"ai_read_by_engine": engines, "per_book": book_stats}
+
+
 def api_stats():
     conn = db()
     g = lambda sql: conn.execute(sql).fetchone()[0]
@@ -1592,6 +1728,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_lookup(query.get("isbn")))
         if path == "/api/stats":
             return self._send(200, api_stats())
+        if path == "/api/timing-stats":
+            return self._send(200, api_timing_stats())
         if path == "/api/categories":
             return self._send(200, {"categories": CATEGORIES})
         if path == "/api/shelves":
@@ -1655,16 +1793,23 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(images, list):
                 return self._send(400, {"error": "รูปแบบข้อมูลภาพไม่ถูกต้อง"})
             eng = p.get("engine")
-            eng = eng if eng in ("gemini", "qwen") else "typhoon"
+            eng = eng if eng in ("gemini", "qwen", "typhoon-local") else "typhoon"
+            t0 = time.time()
             res = api_ai_read(images, mt, eng)
-            _log_read(eng, len(images), res)
+            elapsed_ms = round((time.time() - t0) * 1000)
+            res["elapsed_ms"] = elapsed_ms   # เวลาที่ AI ใช้อ่านจริง วัดจากเซิร์ฟเวอร์ ไม่ใช่ฝั่งมือถือ
+            _log_read(eng, len(images), res, elapsed_ms)
             return self._send(200, res)
         if path == "/api/stockin":
             if not (p.get("title") or p.get("title_id")):
                 return self._send(400, {"error": "ต้องมีชื่อหนังสือ"})
             if not p.get("shelf"):
                 return self._send(400, {"error": "ต้องระบุชั้นวาง"})
-            return self._send(200, api_stockin(p))
+            result = api_stockin(p)
+            if result.get("ok"):
+                _log_timing(p.get("title", "").strip(), p.get("source"),
+                           p.get("elapsed_ms"), len(p.get("cover_images") or []))
+            return self._send(200, result)
         if path == "/api/sell":
             return self._send(200, api_sell(p.get("copy_id")))
         if path == "/api/chat":

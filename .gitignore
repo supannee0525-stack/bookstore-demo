@@ -5,3 +5,4 @@ __pycache__/
 typhoon_test_result.json
 reads.jsonl
 covers/
+timings.jsonl
