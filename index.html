@@ -4,6 +4,33 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ระบบร้านหนังสือมือสอง — เดโม</title>
+<script>
+// ตัวจับ error ฉุกเฉิน — โชว์เป็นแบนเนอร์แดงบนจอทันทีถ้ามี JS พัง
+// ไว้ debug ตอนใช้งานจริงบนมือถือ ไม่ต้องเปิด devtools
+(function () {
+  var box = null;
+  function show(msg) {
+    if (!box) {
+      box = document.createElement('div');
+      box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;' +
+        'background:#7a1a1a;color:#fff;font:12px/1.5 monospace;padding:10px;' +
+        'max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-all';
+      document.documentElement.appendChild(box);
+    }
+    var line = document.createElement('div');
+    line.style.borderTop = '1px solid rgba(255,255,255,.3)';
+    line.style.paddingTop = '4px'; line.style.marginTop = '4px';
+    line.textContent = new Date().toLocaleTimeString() + ' — ' + msg;
+    box.appendChild(line);
+  }
+  window.addEventListener('error', function (e) {
+    show('JS ERROR: ' + e.message + ' (' + e.filename + ':' + e.lineno + ':' + e.colno + ')');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    show('PROMISE REJECTED: ' + (e.reason && e.reason.message || e.reason));
+  });
+})();
+</script>
 <meta name="description" content="เดโมระบบจัดการสต็อกร้านหนังสือมือสอง: ค้นหาพร้อมตำแหน่งชั้น ลงสต็อกด้วย AI อ่านปก และระบบรับซื้อ">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
