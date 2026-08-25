@@ -242,6 +242,13 @@ def init_db():
     conn.execute("UPDATE copies SET code = 'BK-' || substr('000000' || id, -6)"
                  " WHERE IFNULL(code,'') = ''")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_copies_code ON copies(code)")
+    # ทะเบียนชั้นวาง — เก็บแยกจาก copies เพราะชั้นที่สร้างใหม่ยังไม่มีหนังสือวาง
+    # ถ้าดึงรายชื่อชั้นจาก copies อย่างเดียว ชั้นเปล่าจะหายไปจากตัวเลือก
+    conn.execute("CREATE TABLE IF NOT EXISTS shelves ("
+                 "code TEXT PRIMARY KEY, zone TEXT NOT NULL, created_at TEXT NOT NULL)")
+    conn.execute("INSERT OR IGNORE INTO shelves(code, zone, created_at)"
+                 " SELECT DISTINCT shelf, substr(shelf,1,1), ? FROM copies"
+                 " WHERE IFNULL(shelf,'') <> ''", (now(),))
     conn.commit()
     if fresh:
         for isbn, title, author, pub, year, syn, cover, copies in SEED:
@@ -1060,10 +1067,15 @@ def api_stockin(p):
     grade = p.get("grade", "B")
     price = float(p.get("price") or 0)
     cost = float(p.get("cost") or 0)
+    try:
+        shelf = _ensure_shelf(conn, p.get("shelf", ""))
+    except ValueError as exc:
+        conn.close()
+        return {"error": str(exc)}
     cur = conn.execute(
         "INSERT INTO copies(title_id,grade,price,cost,shelf,status,added_at,note)"
         " VALUES(?,?,?,?,?,'in_stock',?,?)",
-        (tid, grade, price, cost, p.get("shelf", "").strip().upper(), now(), p.get("note")),
+        (tid, grade, price, cost, shelf, now(), p.get("note")),
     )
     # รหัสสติกเกอร์ผูกกับ id ของเล่ม จึงไม่ซ้ำกันแน่นอน ไม่ต้องสุ่มแล้วเช็คชน
     code = copy_code(cur.lastrowid)
@@ -1123,6 +1135,62 @@ def api_stats():
         "shelves": [dict(s) for s in shelves],
         "recent_sales": [dict(r) for r in recent],
     }
+
+
+SHELF_RE = re.compile(r"^[A-Z]-\d{2}-\d$")   # โซน-ตู้-ชั้น เช่น A-01-2
+
+
+def api_shelves():
+    """รายชื่อชั้นวางทั้งหมด พร้อมจำนวนเล่มที่วางอยู่ จัดกลุ่มตามโซน"""
+    conn = db()
+    rows = conn.execute(
+        "SELECT s.code, s.zone, ("
+        "  SELECT COUNT(*) FROM copies c WHERE c.shelf = s.code AND c.status='in_stock'"
+        ") AS n FROM shelves s ORDER BY s.code").fetchall()
+    conn.close()
+    zones = {}
+    for r in rows:
+        zones.setdefault(r["zone"], []).append({"code": r["code"], "count": r["n"]})
+    return {"zones": [{"zone": z, "shelves": zones[z]} for z in sorted(zones)],
+            "total": len(rows)}
+
+
+def api_shelf_add(p):
+    """เพิ่มชั้นวางใหม่ — บังคับรูปแบบเดียวกันทั้งร้าน
+
+    เดิมพนักงานพิมพ์เองได้อิสระ ทำให้มีชั้น 'A1' ปนกับ 'A-01-2' ในฐานข้อมูลจริง
+    ซึ่งพอเรียงลำดับหรือกรองตามโซนแล้วจะหลุดออกจากกลุ่ม หาของไม่เจอ
+    """
+    code = (p.get("code") or "").strip().upper()
+    if not SHELF_RE.match(code):
+        return {"error": "รูปแบบต้องเป็น ตัวอักษร-ตัวเลข2หลัก-ตัวเลข1หลัก เช่น A-01-2"}
+    conn = db()
+    if conn.execute("SELECT 1 FROM shelves WHERE code=?", (code,)).fetchone():
+        conn.close()
+        return {"error": f"ชั้น {code} มีอยู่แล้ว"}
+    conn.execute("INSERT INTO shelves(code, zone, created_at) VALUES(?,?,?)",
+                 (code, code[0], now()))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "code": code, "zone": code[0]}
+
+
+def _ensure_shelf(conn, code):
+    """ลงทะเบียนชั้นให้อัตโนมัติถ้ายังไม่มี แล้วคืนรหัสที่ใช้ได้
+
+    ยอมรับเฉพาะรหัสที่ถูกรูปแบบ หรือรหัสที่ลงทะเบียนไว้แล้ว (เผื่อของเดิมอย่าง 'A1')
+    รหัสใหม่ที่ผิดรูปแบบจะถูกปฏิเสธ ไม่ให้ฐานข้อมูลรกไปกว่านี้
+    """
+    code = (code or "").strip().upper()
+    if not code:
+        return ""
+    known = conn.execute("SELECT 1 FROM shelves WHERE code=?", (code,)).fetchone()
+    if not known:
+        if not SHELF_RE.match(code):
+            raise ValueError(f"รหัสชั้นวาง '{code}' ผิดรูปแบบ ต้องเป็นแบบ A-01-2")
+        conn.execute("INSERT INTO shelves(code, zone, created_at) VALUES(?,?,?)",
+                     (code, code[0], now()))
+    return code
 
 
 def copy_code(copy_id):
@@ -1230,8 +1298,12 @@ def api_buyback_accept(p):
     price = float(p.get("sell_price") or 0)
     if not price:
         return {"error": "ต้องมีราคาตั้งขาย"}
-    shelf = (p.get("shelf") or "").strip().upper()
     conn = db()
+    try:
+        shelf = _ensure_shelf(conn, p.get("shelf") or "")
+    except ValueError as exc:
+        conn.close()
+        return {"error": str(exc)}
     tid = p.get("title_id")
     if not tid:
         row = conn.execute("SELECT id FROM titles WHERE title=? LIMIT 1", (title,)).fetchone()
@@ -1350,6 +1422,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_stats())
         if path == "/api/categories":
             return self._send(200, {"categories": CATEGORIES})
+        if path == "/api/shelves":
+            return self._send(200, api_shelves())
         if path == "/api/copy-lookup":
             return self._send(200, api_copy_lookup(query.get("code")))
         if path == "/api/barcode":
@@ -1431,6 +1505,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_buyback_quote(p))
         if path == "/api/buyback-accept":
             return self._send(200, api_buyback_accept(p))
+        if path == "/api/shelf-add":
+            return self._send(200, api_shelf_add(p))
         if path == "/api/reset":
             DB.unlink(missing_ok=True)
             init_db()

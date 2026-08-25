@@ -309,6 +309,35 @@ td.num{text-align:right}
   background:var(--panel-2);
 }
 .msg-links a:hover{border-color:var(--accent)}
+/* เลือกชั้นวาง — โซนก่อน แล้วค่อยชั้น เพราะร้านจริงมีชั้นหลายร้อยชั้น */
+.shelf-pick{margin:0 0 12px}
+.shelf-line{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:7px}
+.shelf-line .lbl{font-size:.72rem;color:var(--muted);min-width:34px;font-weight:600}
+.shelf-pick button{
+  appearance:none;cursor:pointer;font-family:inherit;font-size:.78rem;
+  color:var(--muted);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:8px;padding:6px 10px;
+  transition:border-color .15s ease,color .15s ease,transform .1s ease;
+}
+.shelf-pick button:hover{color:var(--ink);border-color:var(--accent)}
+.shelf-pick button:active{transform:scale(.95)}
+.shelf-pick button.on{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+.shelf-pick button.zone{min-width:38px;font-weight:600;font-family:'Chakra Petch',sans-serif}
+.shelf-pick button .n{font-size:.66rem;opacity:.65;margin-left:4px}
+.shelf-pick button.add{border-style:dashed;color:var(--accent-2)}
+#f-shelf-now{color:var(--accent-2);font-weight:600}
+.shelf-new{display:flex;gap:6px;align-items:center;margin-top:7px}
+select{
+  width:100%;font-family:inherit;font-size:.95rem;color:var(--ink);
+  background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:11px 12px;
+}
+select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.shelf-new input{
+  width:118px;font-family:inherit;font-size:.85rem;text-transform:uppercase;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+  padding:7px 10px;color:var(--ink);
+}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 12px}
 .chips button{
   appearance:none;cursor:pointer;font-family:inherit;font-size:.74rem;
@@ -584,9 +613,11 @@ td.num{text-align:right}
 
     <div class="row">
       <div class="field"><label for="f-price">ราคาขาย (ระบบคิดให้)</label><input id="f-price" class="mono" inputmode="decimal"></div>
-      <div class="field"><label for="f-shelf">ชั้นวาง *</label><input id="f-shelf" class="mono" placeholder="A-01-2" autocomplete="off"></div>
+      <div class="field"><label>ชั้นวาง * <span id="f-shelf-now" class="mono"></span></label>
+        <input id="f-shelf" type="hidden"></div>
     </div>
-    <p class="hint" style="margin-top:-4px">ชั้นวางจะจำค่าล่าสุดไว้ ทำไล่ทีละชั้นได้เร็วขึ้น</p>
+    <div id="shelf-pick" class="shelf-pick"></div>
+    <p class="hint" style="margin-top:-2px">แตะเลือกโซนแล้วเลือกชั้น — ระบบจำชั้นล่าสุดไว้ให้ ทำไล่ทีละชั้นได้เร็ว</p>
 
     <button class="btn" id="btn-save" style="width:100%">บันทึกเข้าสต็อก</button>
     <p class="note">ของจริงจะทำเป็นแอปมือถือ สแกนบาร์โค้ดด้วยกล้อง → ถ่ายรูป → กดเกรด → เสร็จใน ~25 วินาที/เล่ม<br>
@@ -963,7 +994,80 @@ get('categories').then(d => {
 }).catch(() => {});
 $('f-category').addEventListener('input', () => { $('cat-src').textContent = ''; markCatChip(); });
 
-try { $('f-shelf').value = localStorage.getItem('lastShelf') || ''; } catch (e) {}
+/* ---------- เลือกชั้นวาง ---------- */
+// ร้านจริงมีชั้นเป็นร้อย ถ้าโชว์ปุ่มทั้งหมดพร้อมกันจะหาไม่เจอ
+// จึงแบ่ง 2 ชั้น: เลือกโซน (ตัวอักษร) ก่อน แล้วค่อยโชว์เฉพาะชั้นในโซนนั้น
+let shelfZones = [], curZone = '', curShelf = '';
+
+function setShelf(code) {
+  curShelf = code || '';
+  $('f-shelf').value = curShelf;
+  $('f-shelf-now').textContent = curShelf || '';
+  $('shelf-pick').querySelectorAll('button[data-shelf]').forEach(b =>
+    b.classList.toggle('on', b.dataset.shelf === curShelf));
+}
+
+function renderShelves() {
+  const zoneRow = shelfZones.map(z =>
+    `<button type="button" class="zone${z.zone === curZone ? ' on' : ''}" data-zone="${esc(z.zone)}">${esc(z.zone)}</button>`
+  ).join('');
+  const z = shelfZones.find(x => x.zone === curZone);
+  const slotRow = z ? z.shelves.map(s =>
+    `<button type="button" data-shelf="${esc(s.code)}"${s.code === curShelf ? ' class="on"' : ''}>` +
+    `${esc(s.code)}<span class="n">${s.count}</span></button>`).join('') : '';
+  $('shelf-pick').innerHTML =
+    `<div class="shelf-line"><span class="lbl">โซน</span>${zoneRow}` +
+    `<button type="button" class="add" id="btn-shelf-new">+ เพิ่มชั้น</button></div>` +
+    (z ? `<div class="shelf-line"><span class="lbl">ชั้น</span>${slotRow}</div>` : '') +
+    `<div class="shelf-new" id="shelf-new" hidden>
+       <input id="new-shelf-code" placeholder="A-01-2" maxlength="8" autocomplete="off">
+       <button type="button" id="btn-shelf-save">บันทึกชั้นใหม่</button>
+       <button type="button" id="btn-shelf-cancel">ยกเลิก</button>
+     </div>`;
+
+  $('shelf-pick').querySelectorAll('button[data-zone]').forEach(b =>
+    b.addEventListener('click', () => { curZone = b.dataset.zone; renderShelves(); }));
+  $('shelf-pick').querySelectorAll('button[data-shelf]').forEach(b =>
+    b.addEventListener('click', () => setShelf(b.dataset.shelf === curShelf ? '' : b.dataset.shelf)));
+  $('btn-shelf-new').addEventListener('click', () => {
+    $('shelf-new').hidden = !$('shelf-new').hidden;
+    if (!$('shelf-new').hidden) $('new-shelf-code').focus();
+  });
+  $('btn-shelf-cancel').addEventListener('click', () => { $('shelf-new').hidden = true; });
+  $('btn-shelf-save').addEventListener('click', addShelf);
+  $('new-shelf-code').addEventListener('keydown', e => { if (e.key === 'Enter') addShelf(); });
+}
+
+async function addShelf() {
+  const code = $('new-shelf-code').value.trim().toUpperCase();
+  if (!code) return;
+  const r = await post('shelf-add', {code: code});
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(`เพิ่มชั้น ${r.code} แล้ว`);
+  await loadShelves(r.zone, r.code);   // เลือกชั้นที่เพิ่งสร้างให้เลย จะได้ใช้ต่อทันที
+}
+
+// รายการชั้นแบบ dropdown — ใช้ในหน้ารับซื้อ เพราะเลือกครั้งเดียวจบ ไม่ได้ทำไล่ทีละชั้น
+function shelfSelectHTML(id) {
+  const opts = shelfZones.map(z =>
+    `<optgroup label="โซน ${esc(z.zone)}">` +
+    z.shelves.map(s => `<option value="${esc(s.code)}"${s.code === curShelf ? ' selected' : ''}>` +
+      `${esc(s.code)} (${s.count} เล่ม)</option>`).join('') + '</optgroup>').join('');
+  return `<select id="${id}" class="mono"><option value="">— เลือกชั้น —</option>${opts}</select>`;
+}
+
+async function loadShelves(pickZone, pickShelf) {
+  try {
+    const d = await get('shelves');
+    shelfZones = d.zones || [];
+    let want = pickShelf || curShelf;
+    if (!want) { try { want = localStorage.getItem('lastShelf') || ''; } catch (e) {} }
+    curZone = pickZone || (want ? want[0] : (shelfZones[0] || {}).zone) || '';
+    renderShelves();
+    if (want && shelfZones.some(z => z.shelves.some(s => s.code === want))) setShelf(want);
+  } catch (e) {}
+}
+loadShelves();
 
 /* ---------- สแกนบาร์โค้ดด้วยกล้องมือถือ ---------- */
 let zxingReader = null, zxingControls = null, zxingLoading = false;
@@ -1269,6 +1373,7 @@ $('btn-save').addEventListener('click', async () => {
   $('btn-save').disabled = false;
   if (r.error) { toast(r.error, 'error'); return; }
   try { localStorage.setItem('lastShelf', payload.shelf); } catch (e) {}
+  loadShelves(payload.shelf[0], payload.shelf);   // อัปเดตจำนวนเล่มบนปุ่มชั้น + คงชั้นเดิมไว้
   toast(`บันทึก "${payload.title}" เกรด ${grade} ${baht(payload.price)} ชั้น ${payload.shelf}`);
   if (r.code) showSticker(r.code, payload.title, payload.price, payload.shelf, grade);
   // เด้งไปแท็บสต็อกพร้อมค้นชื่อที่เพิ่งบันทึก ให้เห็นทันทีว่าเข้าระบบแล้วจริง
@@ -1374,13 +1479,17 @@ $('btn-quote').addEventListener('click', async () => {
         <div class="tile"><p class="k">ตั้งขาย</p><p class="v">${baht(r.sell_price)}</p></div>
         <div class="tile"><p class="k">กำไรถ้าขายได้</p><p class="v">${baht(r.margin)}</p></div>
       </div>
-      <button class="btn" id="btn-accept" style="width:100%;margin-top:12px">รับซื้อและลงสต็อก</button>
+      <div class="field" style="margin-top:12px">
+        <label for="b-shelf">เก็บที่ชั้น</label>
+        ${shelfSelectHTML('b-shelf')}
+      </div>
+      <button class="btn" id="btn-accept" style="width:100%">รับซื้อและลงสต็อก</button>
       <p class="hint" style="margin:10px 0 0">รับซื้อที่ ${r.rate_pct}% ของราคาตั้งขายตามสภาพ
         (ดีมาก 45% · ดี 40% · พออ่านได้ 30%) — ปรับได้ตามนโยบายร้าน</p>
     </div>`;
   $('btn-accept').addEventListener('click', async () => {
-    const shelf = prompt('เก็บเล่มนี้ที่ชั้นไหน (เช่น A-01-2)');
-    if (!shelf) return;
+    const shelf = $('b-shelf').value;
+    if (!shelf) { toast('เลือกชั้นวางก่อน', 'error'); return; }
     const res = await post('buyback-accept', {
       title: $('b-title').value.trim() || 'ไม่ระบุชื่อ',
       author: $('b-author').value.trim(), cover_price: cover || null,
