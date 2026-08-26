@@ -462,7 +462,9 @@ QWEN_MODEL = "qwen/qwen3.8-27b"   # โมเดลเปิด ดาวน์�
 
 
 OLLAMA_OCR_MODEL = "scb10x/typhoon-ocr1.5-3b"
-OLLAMA_FIELD_MODEL = "scb10x/typhoon2.5-qwen3-30b-a3b"
+# ตั้งค่าได้ใน .env เพราะแต่ละ pod ที่เช่ามีโมเดลไม่เหมือนกัน และขนาดการ์ดจอต่างกัน
+# 30B ต้องใช้การ์ด 48GB+ / 12B ใช้ได้บนการ์ด 24GB และตรงกับที่ Mac mini 32GB รันได้
+OLLAMA_FIELD_MODEL = _cfg("OLLAMA_FIELD_MODEL", "scb10x/typhoon2.1-gemma3-12b")
 
 
 def _ollama_post(path, body, timeout=180):
