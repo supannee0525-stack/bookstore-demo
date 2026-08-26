@@ -1138,12 +1138,25 @@ def api_chat(history, mode="staff"):
     # โหมดลูกค้าไม่มีการ์ด (books ถูกล้างท้ายฟังก์ชัน) จึงส่งแค่ปกให้โชว์ในแชทแทน
     # ถ้าลูกค้าขอดูรูปเพิ่ม (เช่น "มีรูปอื่นไหม") ส่งรูปทุกใบของเล่มแรกที่เจอ
     # ปกติจะเหลือแค่เล่มเดียวอยู่แล้ว เพราะคำถามแบบนี้ถูกจับเป็นคำถามต่อเนื่องถึงเล่มที่คุยอยู่
-    if is_customer and books and any(w in user_msg for w in PHOTO_WORDS):
+    asked_photos = is_customer and any(w in user_msg for w in PHOTO_WORDS)
+    if asked_photos and books:
         covers = [{"title": books[0]["title"], "file": im["file"]}
                   for im in _title_images(books[0]["id"])]
     else:
         covers = ([{"title": b["title"], "file": b["cover_path"]}
                    for b in books if b.get("cover_path")][:4]) if is_customer else []
+
+    # บอกโมเดลว่าระบบแนบรูปไปให้ลูกค้าแล้วกี่รูป ไม่งั้นมันไม่รู้ว่ามีรูป
+    # แล้วตอบว่า "ไม่มีรูปให้ดู" ขณะที่รูปโชว์อยู่ในแชท = ขัดกันเองหน้าลูกค้า
+    if is_customer and asked_photos:
+        if covers:
+            convo.append({"role": "system", "content":
+                f"ระบบได้แนบรูปหนังสือเล่มนี้ {len(covers)} รูปไปให้ลูกค้าดูในแชทแล้ว "
+                "ให้บอกลูกค้าสั้นๆ ว่าส่งรูปให้ดูแล้ว ห้ามพูดว่าไม่มีรูป"})
+        else:
+            convo.append({"role": "system", "content":
+                "เล่มนี้ยังไม่มีรูปเก็บไว้ในระบบ ให้บอกลูกค้าตรงๆ ว่ายังไม่มีรูป "
+                "และชวนให้แวะดูตัวเล่มจริงที่ร้าน"})
 
     try:
         r = _chat_completion(convo)
