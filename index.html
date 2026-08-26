@@ -753,6 +753,29 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
   </div>
 </nav>
 
+<!-- กล่องลอย (modal) ต้องอยู่ "ก่อน" บล็อกสคริปต์ด้านล่าง เพราะสคริปต์ผูก event listener
+     กับปุ่มในนี้ตอนโหลดหน้าทันที ถ้าวางไว้ทีหลังจะยังไม่มีตัวตนใน DOM -> null -> JS พังทั้งไฟล์
+     (เคยเกิดจริง: ทำให้ปุ่มถ่ายรูปกับปุ่มบันทึกใช้ไม่ได้ทั้งหมด) -->
+<div id="sticker-box" hidden>
+  <div class="sticker-panel">
+    <h3>สติกเกอร์ติดหลังเล่ม</h3>
+    <p class="hint">ติดหลังเล่มก่อนขึ้นชั้น — คราวหน้าลูกค้าเอามาขายคืน สแกนใบนี้แล้วระบบรู้ราคาทันที</p>
+    <div id="sticker-wrap"></div>
+  </div>
+</div>
+<div id="edit-box" hidden>
+  <div class="sticker-panel edit-panel">
+    <h3>แก้ไขรายละเอียดหนังสือ</h3>
+    <p class="hint">แก้ได้ทุกช่อง รวมราคา/สภาพ/ชั้นวางของแต่ละเล่มจริง</p>
+    <div id="edit-form"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="btn-edit-save">บันทึกการแก้ไข</button>
+      <button class="btn ghost" style="flex:none" id="btn-edit-close">ปิด</button>
+    </div>
+  </div>
+</div>
+<div id="sticker-print-host"></div>
+
 <script>
 const API = p => new URL('api/' + p, location.href.replace(/[^/]*$/, '')).toString();
 const $ = id => document.getElementById(id);
@@ -1763,24 +1786,5 @@ async function loadStats() {
 }
 
 </script>
-<div id="sticker-box" hidden>
-  <div class="sticker-panel">
-    <h3>สติกเกอร์ติดหลังเล่ม</h3>
-    <p class="hint">ติดหลังเล่มก่อนขึ้นชั้น — คราวหน้าลูกค้าเอามาขายคืน สแกนใบนี้แล้วระบบรู้ราคาทันที</p>
-    <div id="sticker-wrap"></div>
-  </div>
-</div>
-<div id="edit-box" hidden>
-  <div class="sticker-panel edit-panel">
-    <h3>แก้ไขรายละเอียดหนังสือ</h3>
-    <p class="hint">แก้ได้ทุกช่อง รวมราคา/สภาพ/ชั้นวางของแต่ละเล่มจริง</p>
-    <div id="edit-form"></div>
-    <div class="row" style="margin-top:14px">
-      <button class="btn" id="btn-edit-save">บันทึกการแก้ไข</button>
-      <button class="btn ghost" style="flex:none" id="btn-edit-close">ปิด</button>
-    </div>
-  </div>
-</div>
-<div id="sticker-print-host"></div>
 </body>
 </html>
