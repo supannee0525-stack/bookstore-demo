@@ -293,11 +293,24 @@ td.num{text-align:right}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
 /* สติกเกอร์ติดหลังเล่ม — ขนาดจริงประมาณ 50x30 มม. */
-#sticker-box,#edit-box,#order-box{
+#sticker-box,#edit-box,#order-box,#pay-box{
   position:fixed;inset:0;z-index:60;display:grid;place-items:center;
   background:rgba(3,6,14,.72);padding:18px;
 }
-#sticker-box[hidden],#edit-box[hidden],#order-box[hidden]{display:none}
+#sticker-box[hidden],#edit-box[hidden],#order-box[hidden],#pay-box[hidden]{display:none}
+
+/* หน้าจ่ายเงิน */
+.pay-panel{max-width:340px;text-align:center}
+.pay-qr-wrap{background:#fff;border-radius:12px;padding:12px;margin:4px 0 10px;display:grid;place-items:center}
+.pay-qr-wrap img{width:100%;max-width:210px;display:block}
+.pay-amount{font-size:1.5rem;font-weight:700;margin:0;font-variant-numeric:tabular-nums}
+.pay-ref{font-size:.76rem;color:var(--muted);margin:2px 0 10px}
+.pay-state{font-size:.85rem;color:var(--muted);margin:0 0 10px;display:flex;align-items:center;justify-content:center;gap:7px}
+.pay-state.paid{color:var(--ok,#4ade80);font-weight:600}
+.pay-demo{border:1px dashed var(--line);border-radius:10px;padding:10px;background:var(--panel-2)}
+.pay-demo p{font-size:.74rem;color:var(--muted);margin:0 0 8px;line-height:1.45}
+.pay-demo[hidden]{display:none}
+.pay-demo .btn{width:100%}
 
 /* ฟอร์มสั่งซื้อของลูกค้า */
 #order-box .fld{display:block;font-size:.78rem;color:var(--muted);margin:0 0 10px}
@@ -883,6 +896,23 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
     </div>
   </div>
 </div>
+<div id="pay-box" hidden>
+  <div class="sticker-panel pay-panel">
+    <h3>สแกนจ่ายด้วย PromptPay</h3>
+    <p class="hint" id="pay-sub">เปิดแอปธนาคาร สแกน QR นี้เพื่อชำระเงิน</p>
+    <div class="pay-qr-wrap">
+      <img id="pay-qr" alt="QR PromptPay สำหรับชำระเงิน">
+    </div>
+    <p class="pay-amount" id="pay-amount"></p>
+    <p class="pay-ref">เลขอ้างอิง <span class="mono" id="pay-ref"></span></p>
+    <p class="pay-state" id="pay-state"><span class="spin"></span> รอรับเงิน...</p>
+    <div class="pay-demo" id="pay-demo" hidden>
+      <p>โหมดสาธิต — ยังไม่ได้เชื่อมบัญชีธนาคารจริง จึงไม่มีการตัดเงิน</p>
+      <button class="btn" id="btn-pay-simulate">จำลองว่าลูกค้าโอนแล้ว</button>
+    </div>
+    <button class="btn ghost" id="btn-pay-close" style="width:100%;margin-top:10px">ปิดหน้าต่าง</button>
+  </div>
+</div>
 <div id="sticker-print-host"></div>
 
 <script>
@@ -1120,10 +1150,65 @@ $('btn-order-confirm').addEventListener('click', async () => {
   closeOrderModal();
   ['order-first', 'order-last', 'order-phone', 'order-address', 'order-note']
     .forEach(id => { $(id).value = ''; });
-  addMsg('bot', `สั่งซื้อเรียบร้อยแล้วครับ 🎉<br>"${esc(r.title)}" สภาพ ${esc(r.grade)} ${baht(r.price)}`
+  addMsg('bot', `รับคำสั่งซื้อแล้วครับ 🎉<br>"${esc(r.title)}" สภาพ ${esc(r.grade)} ${baht(r.price)}`
     + `<br>เลขที่คำสั่งซื้อ <span class="mono">#${r.order_id}</span>`
     + ` · รหัสเล่ม <span class="mono">${esc(r.code)}</span>`
-    + '<br>ทางร้านกันเล่มนี้ไว้ให้แล้ว เดี๋ยวติดต่อกลับเรื่องการชำระเงินและจัดส่งครับ');
+    + '<br>สแกน QR ที่ขึ้นให้เพื่อชำระเงินได้เลยครับ');
+  openPayModal(r.order_id, r.title);
+});
+
+/* ---------- ชำระเงินด้วย QR PromptPay ---------- */
+let payPollTimer = null;
+let payRef = null;
+let payTitle = '';
+
+function stopPayPoll() { clearInterval(payPollTimer); payPollTimer = null; }
+
+function closePayModal() {
+  stopPayPoll();
+  $('pay-box').hidden = true;
+  payRef = null;
+}
+$('btn-pay-close').addEventListener('click', closePayModal);
+
+async function openPayModal(orderId, title) {
+  const r = await post('payment-create', {order_id: orderId});
+  if (r.error) { toast(r.error, 'error'); return; }
+  payRef = r.ref;
+  payTitle = title || '';
+  $('pay-amount').textContent = baht(r.amount);
+  $('pay-ref').textContent = r.ref;
+  $('pay-qr').src = API('payment-qr?ref=' + encodeURIComponent(r.ref));
+  $('pay-state').className = 'pay-state';
+  $('pay-state').innerHTML = '<span class="spin"></span> รอรับเงิน...';
+  $('pay-demo').hidden = !r.demo;
+  $('btn-pay-simulate').disabled = false;
+  $('pay-box').hidden = false;
+  // ของจริงเงินเข้าแล้วผู้ให้บริการจะยิง webhook มา หน้าเว็บจึงถามสถานะเป็นระยะ
+  stopPayPoll();
+  payPollTimer = setInterval(checkPayStatus, 2500);
+}
+
+async function checkPayStatus() {
+  if (!payRef) return;
+  const s = await get('payment-status?ref=' + encodeURIComponent(payRef));
+  if (s.status !== 'paid') return;
+  stopPayPoll();
+  $('pay-state').className = 'pay-state paid';
+  $('pay-state').textContent = '✓ ได้รับเงินแล้ว ขอบคุณครับ';
+  $('pay-demo').hidden = true;
+  addMsg('bot', `ได้รับเงินเรียบร้อยแล้วครับ ✅<br>"${esc(payTitle)}" ${baht(s.amount)}`
+    + `<br>เลขอ้างอิง <span class="mono">${esc(payRef)}</span>`
+    + '<br>ทางร้านจะจัดส่งตามที่อยู่ที่แจ้งไว้ และแจ้งเลขพัสดุให้ทราบครับ');
+  setTimeout(closePayModal, 1800);
+}
+
+$('btn-pay-simulate').addEventListener('click', async () => {
+  const b = $('btn-pay-simulate');
+  b.disabled = true;
+  const r = await post('payment-confirm', {ref: payRef});
+  if (r.error) { toast(r.error, 'error'); b.disabled = false; return; }
+  checkPayStatus();
 });
 
 // ปุ่ม "ขายเล่มนี้"/"จองเล่มนี้" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
@@ -2004,6 +2089,7 @@ function orderRowHTML(r) {
           · สภาพ ${esc(r.grade)} <b>${baht(r.price)}</b></p>
         ${r.address ? `<p class="order-addr">${esc(r.address)}</p>` : ''}
         ${r.note ? `<p class="syn">“${esc(r.note)}”</p>` : ''}
+        ${r.pay_ref ? `<p class="meta">ชำระผ่าน PromptPay · อ้างอิง <span class="mono">${esc(r.pay_ref)}</span></p>` : ''}
         ${r.tracking ? `<p class="meta">เลขพัสดุ <span class="mono">${esc(r.tracking)}</span></p>` : ''}
       </div>
       ${acts ? `<div class="order-actions">${acts}</div>` : ''}

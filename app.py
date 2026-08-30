@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import secrets
 import sqlite3
 import subprocess
 import time
@@ -275,6 +276,14 @@ def init_db():
     for col in ("address TEXT", "tracking TEXT", "paid_at TEXT", "shipped_at TEXT"):
         if col.split()[0] not in ocols:
             conn.execute(f"ALTER TABLE orders ADD COLUMN {col}")
+    # รายการชำระเงิน — 1 คำสั่งซื้อมีได้หลายใบ (เช่นใบเก่าหมดอายุแล้วออกใหม่)
+    conn.execute("CREATE TABLE IF NOT EXISTS payments ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "order_id INTEGER NOT NULL REFERENCES orders(id),"
+                 "ref TEXT NOT NULL UNIQUE, amount REAL NOT NULL,"
+                 "method TEXT NOT NULL, status TEXT NOT NULL, payload TEXT,"
+                 "created_at TEXT NOT NULL, paid_at TEXT)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pay_order ON payments(order_id)")
     # ย้ายรูปปกเดี่ยวที่เคยเก็บไว้ก่อนหน้านี้ (titles.cover_path) เข้าตารางใหม่
     # ให้เป็นรูปที่ 1 ของแต่ละเล่ม ไม่ให้ของเดิมที่นุ่นสแกนไปแล้วหายไป
     conn.execute("INSERT INTO title_images(title_id, file, label, position, created_at)"
@@ -1000,7 +1009,9 @@ def api_orders():
     rows = conn.execute(
         "SELECT o.id, o.customer_name, o.phone, o.address, o.note, o.status,"
         "       o.created_at, o.paid_at, o.shipped_at, o.tracking,"
-        "       c.id copy_id, c.grade, c.price, c.shelf, c.code, t.title"
+        "       c.id copy_id, c.grade, c.price, c.shelf, c.code, t.title,"
+        "       (SELECT p.ref FROM payments p WHERE p.order_id=o.id AND p.status='paid'"
+        "          ORDER BY p.id DESC LIMIT 1) pay_ref"
         "  FROM orders o JOIN copies c ON c.id = o.copy_id"
         "  JOIN titles t ON t.id = c.title_id"
         " ORDER BY CASE o.status WHEN 'pending' THEN 0 WHEN 'paid' THEN 1"
@@ -1039,10 +1050,10 @@ def api_order_update(order_id, action, tracking=""):
         if st != "pending":
             conn.close()
             return {"error": "คำสั่งซื้อนี้ยืนยันการชำระไปแล้ว"}
-        conn.execute("UPDATE copies SET status='sold' WHERE id=?", (cid,))
-        conn.execute("INSERT INTO sales(copy_id,price,sold_at) VALUES(?,?,?)",
-                     (cid, c["price"], now()))
-        conn.execute("UPDATE orders SET status='paid', paid_at=? WHERE id=?", (now(), order_id))
+        _mark_order_paid(conn, o)
+        # ปิดใบ QR ที่ค้างอยู่ด้วย ไม่งั้นลูกค้าสแกนใบเดิมจ่ายซ้ำได้
+        conn.execute("UPDATE payments SET status='cancelled' WHERE order_id=? AND status='awaiting'",
+                     (order_id,))
     elif action == "ship":
         if st != "paid":
             conn.close()
@@ -1057,6 +1068,8 @@ def api_order_update(order_id, action, tracking=""):
         elif c["status"] == "reserved":
             conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (cid,))
         conn.execute("UPDATE orders SET status='cancelled' WHERE id=?", (order_id,))
+        conn.execute("UPDATE payments SET status='cancelled' WHERE order_id=? AND status='awaiting'",
+                     (order_id,))
     conn.commit()
     conn.close()
     return {"ok": True, "action": action}
@@ -1632,6 +1645,136 @@ def make_barcode_svg(code):
     return r.stdout
 
 
+def make_qr_svg(payload):
+    """สร้าง QR เป็น SVG ด้วย zint (มาตรฐานเดียวกับที่ใช้ทำบาร์โค้ด)"""
+    r = subprocess.run(["zint", "-b", "58", "-d", payload, "--scale=4",
+                        "--notext", "--direct", "--filetype=svg"],
+                       capture_output=True, timeout=15)
+    if r.returncode != 0 or not r.stdout:
+        raise RuntimeError((r.stderr or b"").decode()[:200] or "zint ไม่ตอบ")
+    return r.stdout
+
+
+# ---------- PromptPay QR ----------
+# โหมดเดโม: สร้าง QR ตามมาตรฐาน EMVCo จริง (สแกนแล้วแอปธนาคารอ่านได้)
+# แต่ปลายทางเป็นเบอร์ตัวอย่าง และไม่มีการตัดเงินจริง — หน้าเว็บบอกไว้ชัดเจน
+PROMPTPAY_ID = _cfg("PROMPTPAY_ID", "0812345678")
+PAYMENT_DEMO = _cfg("PAYMENT_DEMO", "1") != "0"
+
+
+def _emv(tag, value):
+    return f"{tag}{len(value):02d}{value}"
+
+
+def _crc16(s):
+    """CRC-16/CCITT-FALSE — ตัวปิดท้าย payload ตามสเปก EMVCo"""
+    crc = 0xFFFF
+    for ch in s.encode("ascii"):
+        crc ^= ch << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return f"{crc:04X}"
+
+
+def promptpay_payload(target, amount):
+    """สร้างสตริง PromptPay ตามสเปก EMVCo — เบอร์มือถือหรือเลขบัตรประชาชน"""
+    digits = re.sub(r"\D", "", target or "")
+    if len(digits) == 10:                       # เบอร์มือถือ -> 0066 + ตัดศูนย์หน้า
+        acc = _emv("01", "0066" + digits[1:])
+    elif len(digits) == 13:                     # เลขบัตรประชาชน
+        acc = _emv("02", digits)
+    else:
+        raise ValueError("PROMPTPAY_ID ต้องเป็นเบอร์มือถือ 10 หลัก หรือเลขบัตร 13 หลัก")
+    body = (
+        _emv("00", "01")                        # เวอร์ชัน payload
+        + _emv("01", "12")                      # 12 = QR ใช้ครั้งเดียว (มีจำนวนเงินกำกับ)
+        + _emv("29", _emv("00", "A000000677010111") + acc)
+        + _emv("53", "764")                     # สกุลเงิน THB
+        + _emv("54", f"{float(amount):.2f}")
+        + _emv("58", "TH")
+    )
+    return body + "6304" + _crc16(body + "6304")
+
+
+def _mark_order_paid(conn, order):
+    """ยืนยันว่าเงินเข้าแล้ว — ตัดเล่มเป็นขายแล้ว + บันทึกยอดขาย
+
+    แยกออกมาเป็นฟังก์ชันกลาง เพราะมี 2 ทางที่ทำให้ออเดอร์เป็น 'ชำระแล้ว':
+    พนักงานกดยืนยันเอง กับระบบรับเงินยืนยันเข้ามา — ต้องได้ผลเหมือนกันเป๊ะ
+    """
+    c = conn.execute("SELECT * FROM copies WHERE id=?", (order["copy_id"],)).fetchone()
+    conn.execute("UPDATE copies SET status='sold' WHERE id=?", (order["copy_id"],))
+    conn.execute("INSERT INTO sales(copy_id,price,sold_at) VALUES(?,?,?)",
+                 (order["copy_id"], c["price"], now()))
+    conn.execute("UPDATE orders SET status='paid', paid_at=? WHERE id=?", (now(), order["id"]))
+
+
+def api_payment_create(order_id):
+    """สร้างรายการชำระเงิน (QR PromptPay) ให้คำสั่งซื้อ — ใบเดิมถ้ามีอยู่แล้ว"""
+    conn = db()
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+    if not o:
+        conn.close()
+        return {"error": "ไม่พบคำสั่งซื้อนี้"}
+    if o["status"] != "pending":
+        conn.close()
+        return {"error": "คำสั่งซื้อนี้ชำระเงินหรือปิดไปแล้ว"}
+    c = conn.execute("SELECT price FROM copies WHERE id=?", (o["copy_id"],)).fetchone()
+    amount = float(c["price"] or 0)
+
+    pay = conn.execute("SELECT * FROM payments WHERE order_id=? AND status='awaiting'",
+                       (order_id,)).fetchone()
+    if not pay:
+        ref = f"PP{order_id:05d}{secrets.token_hex(2).upper()}"
+        try:
+            payload = promptpay_payload(PROMPTPAY_ID, amount)
+        except ValueError as exc:
+            conn.close()
+            return {"error": str(exc)}
+        conn.execute("INSERT INTO payments(order_id,ref,amount,method,status,payload,created_at)"
+                     " VALUES(?,?,?,'promptpay','awaiting',?,?)",
+                     (order_id, ref, amount, payload, now()))
+        conn.commit()
+        pay = conn.execute("SELECT * FROM payments WHERE ref=?", (ref,)).fetchone()
+    conn.close()
+    return {"ok": True, "ref": pay["ref"], "amount": pay["amount"],
+            "status": pay["status"], "demo": PAYMENT_DEMO}
+
+
+def api_payment_status(ref):
+    conn = db()
+    p = conn.execute("SELECT * FROM payments WHERE ref=?", ((ref or "").strip(),)).fetchone()
+    conn.close()
+    if not p:
+        return {"error": "ไม่พบรายการชำระเงินนี้"}
+    return {"ok": True, "ref": p["ref"], "status": p["status"], "amount": p["amount"]}
+
+
+def api_payment_confirm(ref):
+    """รับแจ้งว่าเงินเข้าแล้ว
+
+    ของจริงจะเป็น webhook จากธนาคาร/ผู้ให้บริการรับชำระเงินยิงเข้ามาที่นี่
+    เดโมให้กดปุ่มจำลองแทน เพื่อให้เห็นผลลัพธ์ทั้งเส้นทางโดยไม่ต้องโอนเงินจริง
+    """
+    conn = db()
+    p = conn.execute("SELECT * FROM payments WHERE ref=?", ((ref or "").strip(),)).fetchone()
+    if not p:
+        conn.close()
+        return {"error": "ไม่พบรายการชำระเงินนี้"}
+    if p["status"] == "paid":
+        conn.close()
+        return {"ok": True, "already": True, "status": "paid"}
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (p["order_id"],)).fetchone()
+    if not o or o["status"] != "pending":
+        conn.close()
+        return {"error": "คำสั่งซื้อนี้ถูกยกเลิกหรือปิดไปแล้ว"}
+    _mark_order_paid(conn, o)
+    conn.execute("UPDATE payments SET status='paid', paid_at=? WHERE id=?", (now(), p["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "status": "paid", "order_id": p["order_id"]}
+
+
 # ราคารับซื้อคืน คิดตามสภาพ "ตอนที่ลูกค้าเอามาขาย" ไม่ใช่สภาพตอนที่เราขายไป
 BUYBACK_RATE_BY_GRADE = {"A": 0.45, "B": 0.40, "C": 0.30}
 
@@ -1892,6 +2035,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, {"error": "ไม่มีรูปปก"})
             return self._send(200, fpath.read_bytes(), "image/jpeg")
 
+        # ลูกค้าต้องดูสถานะการจ่ายเงินและ QR ของตัวเองได้ จึงเสิร์ฟก่อนเช็คสิทธิ์ด้านล่าง
+        # (อ้างอิงด้วยรหัส ref ที่สุ่มมา เดาไม่ได้ จึงไม่เห็นรายการของคนอื่น)
+        if path == "/api/payment-status":
+            return self._send(200, api_payment_status(query.get("ref")))
+        if path == "/api/payment-qr":
+            conn = db()
+            row = conn.execute("SELECT payload FROM payments WHERE ref=?",
+                               ((query.get("ref") or "").strip(),)).fetchone()
+            conn.close()
+            if not row:
+                return self._send(404, {"error": "ไม่พบรายการชำระเงินนี้"})
+            try:
+                return self._send(200, make_qr_svg(row["payload"]), "image/svg+xml; charset=utf-8")
+            except Exception as exc:
+                return self._send(500, {"error": f"สร้าง QR ไม่ได้: {exc}"})
+
         # บัญชีลูกค้าเข้าได้แค่แชท — กันที่เซิร์ฟเวอร์ ไม่ใช่แค่ซ่อนแท็บในหน้าเว็บ
         # (ถ้ากันแค่หน้าเว็บ ลูกค้าเปิด URL /api/stats ตรงๆ ก็เห็นข้อมูลร้านทั้งหมด)
         if role == "customer":
@@ -1951,9 +2110,17 @@ class Handler(BaseHTTPRequestHandler):
         # บัญชีลูกค้าโพสต์ได้เฉพาะ /api/chat และถูกบังคับให้เป็นโหมดลูกค้าเสมอ
         # (ส่ง mode:"staff" มาเองก็ไม่มีผล เพราะสิทธิ์อยู่ใน token ที่เซ็นไว้)
         if role == "customer":
-            # ลูกค้ากดจองเล่มจากการ์ดในแชทได้ แต่ยังแตะหลังร้านอย่างอื่นไม่ได้
+            # ลูกค้าสั่งซื้อและจ่ายเงินได้ แต่ยังแตะหลังร้านอย่างอื่นไม่ได้
             if path == "/api/order":
                 return self._send(200, api_order(p))
+            if path == "/api/payment-create":
+                return self._send(200, api_payment_create(p.get("order_id")))
+            if path == "/api/payment-confirm":
+                # ของจริงคือ webhook จากผู้ให้บริการรับชำระเงิน ไม่ใช่ให้ลูกค้ากดเอง
+                # เปิดให้กดได้เฉพาะโหมดเดโม เพื่อโชว์เส้นทางครบโดยไม่ต้องโอนจริง
+                if not PAYMENT_DEMO:
+                    return self._send(403, {"error": "ปิดการยืนยันเองในโหมดใช้งานจริง"})
+                return self._send(200, api_payment_confirm(p.get("ref")))
             if path != "/api/chat":
                 return self._send(403, {"error": "บัญชีนี้ใช้ได้เฉพาะการถาม-ตอบหาหนังสือ"})
             history = p.get("messages") or []
@@ -1994,6 +2161,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_sell(p.get("copy_id")))
         if path == "/api/order":
             return self._send(200, api_order(p))
+        if path == "/api/payment-create":
+            return self._send(200, api_payment_create(p.get("order_id")))
+        if path == "/api/payment-confirm":
+            return self._send(200, api_payment_confirm(p.get("ref")))
         if path == "/api/order-update":
             act = p.get("action")
             act = act if act in ("pay", "ship", "cancel") else "cancel"
