@@ -293,11 +293,36 @@ td.num{text-align:right}
 .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #cmp{margin-top:10px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
 /* สติกเกอร์ติดหลังเล่ม — ขนาดจริงประมาณ 50x30 มม. */
-#sticker-box,#edit-box{
+#sticker-box,#edit-box,#order-box{
   position:fixed;inset:0;z-index:60;display:grid;place-items:center;
   background:rgba(3,6,14,.72);padding:18px;
 }
-#sticker-box[hidden],#edit-box[hidden]{display:none}
+#sticker-box[hidden],#edit-box[hidden],#order-box[hidden]{display:none}
+
+/* ฟอร์มจองของลูกค้า */
+#order-box .fld{display:block;font-size:.78rem;color:var(--muted);margin:0 0 10px}
+#order-box .fld input{
+  width:100%;margin-top:4px;font-family:inherit;font-size:.9rem;color:var(--ink);
+  background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;
+}
+#order-summary{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;margin:0 0 12px;font-size:.85rem;
+}
+#order-summary b{display:block;margin-bottom:2px}
+
+/* ใบจองฝั่งพนักงาน */
+.orders{display:flex;flex-direction:column;gap:9px}
+.order-row{
+  display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;
+  border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--panel-2);
+}
+.order-main{flex:1;min-width:200px}
+.order-main b{font-size:.9rem}
+.order-main .meta{margin:2px 0 0}
+.order-actions{display:flex;gap:6px;flex-wrap:wrap}
+.err-line{color:var(--danger);font-size:.8rem;margin:0 0 8px}
+.err-line[hidden]{display:none}
 .sticker-panel{
   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
   padding:16px;max-width:340px;width:100%;box-shadow:0 24px 60px -20px rgba(0,0,0,.85);
@@ -489,7 +514,9 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
 .typing span:nth-child(2){animation-delay:.15s}
 .typing span:nth-child(3){animation-delay:.3s}
 @keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-4px);opacity:1}}
-.msg-books{max-width:100%;width:100%;display:flex;flex-direction:column;gap:8px;margin:-2px 0 2px 37px;animation:msgIn .25s var(--ease)}
+/* ห้ามใส่ width:100% คู่กับ margin-left — ความกว้างจะกลายเป็น 100%+37px แล้วการ์ดล้นขอบขวา
+   (กล่องนี้อยู่ใน flex column อยู่แล้ว จึงยืดเต็มความกว้างที่เหลือให้เองโดยหักระยะขอบให้ถูกต้อง) */
+.msg-books{max-width:100%;display:flex;flex-direction:column;gap:8px;margin:-2px 0 2px 37px;animation:msgIn .25s var(--ease)}
 .msg-books .card{margin-bottom:0}
 .chat-inputbar{
   position:sticky;bottom:calc(92px + env(safe-area-inset-bottom));z-index:15;
@@ -774,6 +801,27 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
     </div>
   </div>
 </div>
+<div id="order-box" hidden>
+  <div class="sticker-panel edit-panel">
+    <h3>จองเล่มนี้</h3>
+    <p class="hint">ทางร้านจะเก็บเล่มนี้ไว้ให้ แล้วมารับที่ร้านได้เลยครับ</p>
+    <div id="order-summary"></div>
+    <label class="fld">ชื่อผู้จอง *
+      <input id="order-name" autocomplete="name" placeholder="ชื่อ-นามสกุล">
+    </label>
+    <label class="fld">เบอร์ติดต่อ *
+      <input id="order-phone" autocomplete="tel" inputmode="tel" placeholder="08x-xxx-xxxx">
+    </label>
+    <label class="fld">ข้อความถึงร้าน
+      <input id="order-note" placeholder="เช่น เข้าไปรับวันเสาร์">
+    </label>
+    <p class="err-line" id="order-err" hidden></p>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="btn-order-confirm">ยืนยันการจอง</button>
+      <button class="btn ghost" style="flex:none" id="btn-order-close">ยกเลิก</button>
+    </div>
+  </div>
+</div>
 <div id="sticker-print-host"></div>
 
 <script>
@@ -901,6 +949,41 @@ function bookCardHTML(t) {
     </div>`;
 }
 
+// การ์ดฉบับลูกค้า — ไม่มีชั้นวาง ไม่มีต้นทุน ไม่มีปุ่มแก้ไข มีแต่ปุ่มจอง
+// (เซิร์ฟเวอร์ก็ไม่ส่งข้อมูลหลังร้านมาให้อยู่แล้ว ตัวนี้เป็นแค่การแสดงผล)
+function customerCardHTML(t) {
+  return `
+    <div class="card">
+      <div class="card-top">
+        ${coverImgHTML(t.cover_path, t.title, 'cover-thumb')}
+        <div class="card-main">
+          <div class="card-head"><h3>${esc(t.title)}</h3></div>
+          ${t.title_alt ? `<p class="meta" style="margin:0 0 4px">${esc(t.title_alt)}</p>` : ''}
+          <p class="meta">${esc(t.author || 'ไม่ระบุผู้เขียน')}
+            · ${esc(t.publisher || '-')} ${esc(t.year || '')}
+            ${t.category ? '<span class="badge high">' + esc(t.category) + '</span>' : ''}</p>
+          ${t.synopsis ? `<p class="syn">${esc(t.synopsis)}</p>` : ''}
+          <a class="review-link" target="_blank" rel="noopener noreferrer"
+             href="https://www.google.com/search?q=${encodeURIComponent(
+               [t.title, t.title_alt, t.author, 'รีวิว หนังสือ'].filter(Boolean).join(' '))}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
+            ดูรีวิวเล่มนี้ใน Google
+          </a>
+        </div>
+      </div>
+      <div class="copies">
+        ${t.copies.map(c => `
+          <div class="copy">
+            <span class="grade ${c.grade}">${c.grade}</span>
+            <span class="price">${baht(c.price)}</span>
+            <span class="spacer"></span>
+            <button class="btn sm" data-order="${c.id}"
+              data-title="${esc(t.title)}" data-grade="${c.grade}" data-price="${c.price}">จองเล่มนี้</button>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
 /* ---------- แท็บสต็อก: ดู/ค้น/ขาย ---------- */
 // เก็บข้อมูลหนังสือที่เพิ่งโชว์บนจอไว้ ให้ปุ่ม "แก้ไข" เปิดฟอร์มได้ทันทีโดยไม่ต้องยิง API ซ้ำ
 const CARD_DATA = {};
@@ -940,8 +1023,46 @@ $('stock-results').addEventListener('click', async e => {
   loadStock();
 });
 
-// ปุ่ม "ขายเล่มนี้" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
+/* ---------- ลูกค้าจองเล่มจากการ์ดในแชท ---------- */
+let orderCopyId = null;
+function openOrderModal(btn) {
+  orderCopyId = Number(btn.dataset.order);
+  $('order-summary').innerHTML =
+    `<b>${esc(btn.dataset.title)}</b>สภาพ ${esc(btn.dataset.grade)} · ${baht(Number(btn.dataset.price))}`;
+  $('order-err').hidden = true;
+  $('order-box').hidden = false;
+  $('order-name').focus();
+}
+function closeOrderModal() { $('order-box').hidden = true; orderCopyId = null; }
+$('btn-order-close').addEventListener('click', closeOrderModal);
+$('order-box').addEventListener('click', e => { if (e.target.id === 'order-box') closeOrderModal(); });
+$('btn-order-confirm').addEventListener('click', async () => {
+  const btn = $('btn-order-confirm');
+  const err = $('order-err');
+  const name = $('order-name').value.trim();
+  const phone = $('order-phone').value.trim();
+  if (!name || !phone) {
+    err.textContent = 'กรุณากรอกชื่อและเบอร์ติดต่อครับ';
+    err.hidden = false;
+    return;
+  }
+  btn.disabled = true;
+  const r = await post('order', {
+    copy_id: orderCopyId, customer_name: name, phone: phone, note: $('order-note').value.trim()
+  });
+  btn.disabled = false;
+  if (r.error) { err.textContent = r.error; err.hidden = false; return; }
+  closeOrderModal();
+  ['order-name', 'order-phone', 'order-note'].forEach(id => { $(id).value = ''; });
+  addMsg('bot', `จองเรียบร้อยแล้วครับ 🎉<br>"${esc(r.title)}" สภาพ ${esc(r.grade)} ${baht(r.price)}`
+    + `<br>รหัสจอง <span class="mono">${esc(r.code)}</span> — ทางร้านเก็บเล่มนี้ไว้ให้แล้ว`
+    + ' แจ้งชื่อหรือรหัสจองตอนมารับที่ร้านได้เลยครับ');
+});
+
+// ปุ่ม "ขายเล่มนี้"/"จองเล่มนี้" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
 $('chat-log').addEventListener('click', async e => {
+  const orderBtn = e.target.closest('[data-order]');
+  if (orderBtn) { openOrderModal(orderBtn); return; }
   const editBtn = e.target.closest('[data-edit]');
   if (editBtn) { openEditModal(Number(editBtn.dataset.edit)); return; }
   const btn = e.target.closest('[data-sell]');
@@ -1052,11 +1173,13 @@ function addMsg(role, html, extraClass) {
 }
 function addBooks(books) {
   if (!books || !books.length) return;
-  cacheCards(books);
+  const forCustomer = chatMode() === 'customer';
+  // การ์ดลูกค้าไม่มีปุ่มแก้ไข และข้อมูลไม่ครบแบบหลังร้าน จึงไม่เอาไปทับแคชที่ฟอร์มแก้ไขใช้
+  if (!forCustomer) cacheCards(books);
   const log = $('chat-log');
   const div = document.createElement('div');
   div.className = 'msg-books';
-  div.innerHTML = books.map(bookCardHTML).join('');
+  div.innerHTML = books.map(forCustomer ? customerCardHTML : bookCardHTML).join('');
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
 }
@@ -1728,7 +1851,28 @@ function statsSkeleton() {
 
 async function loadStats() {
   $('stats').innerHTML = statsSkeleton();
-  const [s, t] = await Promise.all([get('stats'), get('timing-stats')]);
+  const [s, t, o] = await Promise.all([get('stats'), get('timing-stats'), get('orders')]);
+  const orders = o.orders || [];
+  const orderCard = `
+    <div class="card">
+      <h3>ใบจองจากลูกค้า ${orders.length ? `<span class="badge high">${orders.length}</span>` : ''}</h3>
+      <p class="meta">ลูกค้ากดจองจากแชทเอง — เล่มที่จองถูกกันออกจากสต็อกไว้แล้ว รอลูกค้ามารับ</p>
+      ${orders.length ? `<div class="orders">${orders.map(r => `
+        <div class="order-row">
+          <div class="order-main">
+            <b>${esc(r.title)}</b>
+            <p class="meta">${esc(r.customer_name)} · ${esc(r.phone)}
+              · <span class="mono">${esc(r.code)}</span> · ชั้น <span class="mono">${esc(r.shelf)}</span>
+              · สภาพ ${esc(r.grade)} ${baht(r.price)}</p>
+            ${r.note ? `<p class="syn">“${esc(r.note)}”</p>` : ''}
+          </div>
+          <div class="order-actions">
+            <button class="btn sm" data-order-sell="${r.id}">ลูกค้ามารับแล้ว</button>
+            <button class="btn ghost sm" data-order-cancel="${r.id}">ยกเลิก</button>
+          </div>
+        </div>`).join('')}</div>`
+        : '<p class="hint" style="margin:0">ยังไม่มีใบจองค้างอยู่</p>'}
+    </div>`;
   const engRows = Object.entries(t.ai_read_by_engine || {}).map(([eng, v]) => `
     <tr><td>${esc(eng)}</td><td class="num mono">${(v.avg_ms/1000).toFixed(1)}s</td>
       <td class="num mono">${(v.median_ms/1000).toFixed(1)}s</td>
@@ -1754,7 +1898,7 @@ async function loadStats() {
         </div>` : `<p class="hint" style="margin:10px 0 0">
           ยังไม่มีข้อมูลเวลารวมต่อเล่ม — เกิดจากถ่ายรูปเล่มแรกจนกดบันทึกเข้าสต็อกสำเร็จ</p>`}
     </div>`;
-  $('stats').innerHTML = `${timingCard}
+  $('stats').innerHTML = `${orderCard}${timingCard}
     <div class="tiles">
       <div class="tile"><p class="k">รายการหนังสือ (ชื่อเรื่อง)</p><p class="v">${s.titles.toLocaleString('th-TH')}</p></div>
       <div class="tile"><p class="k">เล่มคงเหลือ</p><p class="v">${s.in_stock.toLocaleString('th-TH')}</p></div>
@@ -1784,6 +1928,22 @@ async function loadStats() {
         : '<p class="hint" style="margin:0">ยังไม่มีการขาย — ลองไปที่แท็บค้นหาแล้วกด "ขายเล่มนี้"</p>'}
     </div>`;
 }
+
+// ปุ่มปิดใบจอง — การ์ดถูกสร้างใหม่ทุกครั้งที่โหลดสถิติ จึงผูกที่กล่องแม่ตัวเดียว
+$('stats').addEventListener('click', async e => {
+  const sellBtn = e.target.closest('[data-order-sell]');
+  const cancelBtn = e.target.closest('[data-order-cancel]');
+  const btn = sellBtn || cancelBtn;
+  if (!btn) return;
+  btn.disabled = true;
+  const r = await post('order-close', {
+    order_id: Number(sellBtn ? sellBtn.dataset.orderSell : cancelBtn.dataset.orderCancel),
+    action: sellBtn ? 'sell' : 'cancel'
+  });
+  if (r.error) { toast(r.error, 'error'); btn.disabled = false; return; }
+  toast(sellBtn ? 'ตัดขายเรียบร้อย บันทึกยอดขายแล้ว' : 'ยกเลิกใบจอง คืนเล่มเข้าสต็อกแล้ว');
+  loadStats();
+});
 
 </script>
 </body>

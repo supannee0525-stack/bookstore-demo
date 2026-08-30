@@ -261,6 +261,15 @@ def init_db():
                  "file TEXT NOT NULL, label TEXT, position INTEGER NOT NULL,"
                  "created_at TEXT NOT NULL)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_timg_title ON title_images(title_id)")
+    # ใบสั่งจองจากลูกค้าผ่านแชท — ลูกค้ากดจองเล่มที่ต้องการได้เอง แล้วมารับที่ร้าน
+    # เล่มที่ถูกจองเปลี่ยนสถานะเป็น 'reserved' จึงหลุดจากผลค้น in_stock อัตโนมัติ
+    # กันลูกค้าอีกคนจองเล่มเดียวกันซ้ำ โดยไม่ต้องแก้เงื่อนไขค้นหาที่อื่นเลย
+    conn.execute("CREATE TABLE IF NOT EXISTS orders ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "copy_id INTEGER NOT NULL REFERENCES copies(id),"
+                 "customer_name TEXT NOT NULL, phone TEXT, note TEXT,"
+                 "status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
     # ย้ายรูปปกเดี่ยวที่เคยเก็บไว้ก่อนหน้านี้ (titles.cover_path) เข้าตารางใหม่
     # ให้เป็นรูปที่ 1 ของแต่ละเล่ม ไม่ให้ของเดิมที่นุ่นสแกนไปแล้วหายไป
     conn.execute("INSERT INTO title_images(title_id, file, label, position, created_at)"
@@ -806,8 +815,13 @@ CHAT_PROMPT_CUSTOMER = (
     "เช่น 'เรื่องนี้เดี๋ยวพนักงานหน้าร้านช่วยดูให้ได้เลยครับ'\n"
     "  **ห้ามบอกตำแหน่งชั้นวางใดๆ ห้ามแต่งชื่อชั้นขึ้นมาเอง** และ **ห้ามพูดว่าร้านเก็บหรือไม่เก็บ"
     "ข้อมูลอะไรไว้ในระบบ** เพราะลูกค้าไม่ต้องรู้เรื่องระบบหลังร้าน\n"
-    "- ห้ามพูดว่า 'ดูจากการ์ดด้านล่าง' หรือ 'ดูรายการด้านล่าง' เพราะโหมดนี้ไม่มีรายการให้ดู "
-    "ต้องเล่าข้อมูลออกมาในข้อความเลย"
+    # ระบบแนบการ์ดหนังสือ (รูปปก ราคา สภาพ ปุ่มจอง) ไปใต้ข้อความให้อยู่แล้ว
+    # จึงห้ามไล่รายละเอียดซ้ำในข้อความ ไม่งั้นลูกค้าอ่านข้อมูลเดียวกัน 2 รอบ
+    "- ระบบแนบการ์ดหนังสือใต้ข้อความให้ลูกค้าแล้ว (มีรูปปก ราคา สภาพ และปุ่มกดจอง) "
+    "**ถ้าเจอมากกว่า 1 เล่ม ให้บอกสั้นๆ ว่ามีกี่เล่มแล้วชวนดูการ์ด** "
+    "เช่น 'มีอยู่ 3 เล่มครับ เลือกดูจากด้านล่างได้เลย' **ห้ามไล่ชื่อและราคาทีละเล่มในข้อความ**\n"
+    "- ถ้าลูกค้าถามว่าจอง/สั่งซื้อยังไง ให้บอกว่ากดปุ่ม 'จองเล่มนี้' ที่การ์ดได้เลย "
+    "แล้วทางร้านจะเก็บเล่มไว้ให้มารับที่ร้าน"
 )
 
 # โหมดพนักงาน — เห็นข้อมูลครบ มีการ์ดสรุปให้ ทำงานเร็ว
@@ -902,6 +916,104 @@ def _compact_titles(titles, mode="staff"):
                        for c in t["copies"] if c["status"] == "in_stock"][:5],
         } for t in titles]
     return {"found": len(compact), "books": compact}
+
+
+def _customer_books(titles):
+    """การ์ดหนังสือฉบับลูกค้า — ตัดข้อมูลหลังร้านออกตั้งแต่ต้นทาง
+
+    ไม่ส่ง shelf/cost/status ไปหน้าเว็บเลย ต่อให้ลูกค้าเปิดดูโค้ดหน้าเว็บก็ไม่เห็น
+    ปลอดภัยกว่าการซ่อนด้วย CSS หรือหวังว่าหน้าเว็บจะไม่เอามาแสดง
+    ส่งเฉพาะเล่มที่ยังว่างจริง (in_stock) เพราะการ์ดนี้มีปุ่มให้กดจองได้
+    """
+    out = []
+    for t in titles:
+        avail = [{"id": c["id"], "grade": c["grade"], "price": c["price"]}
+                 for c in t["copies"] if c["status"] == "in_stock"]
+        if not avail:
+            continue
+        out.append({
+            "id": t["id"], "title": t["title"], "title_alt": t.get("title_alt"),
+            "author": t.get("author"), "publisher": t.get("publisher"),
+            "year": t.get("year"), "category": t.get("category"),
+            "synopsis": t.get("synopsis"), "cover_path": t.get("cover_path"),
+            "copies": avail,
+        })
+    return out
+
+
+def api_order(p):
+    """ลูกค้ากดจองเล่มจากการ์ดในแชท — จองไว้ให้ แล้วมารับที่ร้าน"""
+    name = str(p.get("customer_name") or "").strip()
+    if not name:
+        return {"error": "กรุณากรอกชื่อผู้จอง"}
+    phone = str(p.get("phone") or "").strip()
+    if not phone:
+        return {"error": "กรุณากรอกเบอร์ติดต่อ"}
+    try:
+        copy_id = int(p.get("copy_id"))
+    except (TypeError, ValueError):
+        return {"error": "ไม่พบเล่มที่ต้องการจอง"}
+
+    conn = db()
+    c = conn.execute("SELECT * FROM copies WHERE id=?", (copy_id,)).fetchone()
+    if not c:
+        conn.close()
+        return {"error": "ไม่พบเล่มนี้"}
+    if c["status"] == "reserved":
+        conn.close()
+        return {"error": "ขออภัยครับ เล่มนี้เพิ่งมีคนจองไปแล้ว"}
+    if c["status"] != "in_stock":
+        conn.close()
+        return {"error": "ขออภัยครับ เล่มนี้ขายไปแล้ว"}
+    conn.execute("UPDATE copies SET status='reserved' WHERE id=?", (copy_id,))
+    cur = conn.execute("INSERT INTO orders(copy_id,customer_name,phone,note,status,created_at)"
+                       " VALUES(?,?,?,?,'pending',?)",
+                       (copy_id, name, phone, str(p.get("note") or "").strip() or None, now()))
+    conn.commit()
+    t = conn.execute("SELECT title FROM titles WHERE id=?", (c["title_id"],)).fetchone()
+    conn.close()
+    return {"ok": True, "order_id": cur.lastrowid, "title": t["title"],
+            "price": c["price"], "grade": c["grade"], "code": c["code"]}
+
+
+def api_orders():
+    """รายการจองที่ยังรอรับ — ฝั่งพนักงานเท่านั้น"""
+    conn = db()
+    rows = conn.execute(
+        "SELECT o.id, o.customer_name, o.phone, o.note, o.created_at,"
+        "       c.id copy_id, c.grade, c.price, c.shelf, c.code, t.title"
+        "  FROM orders o JOIN copies c ON c.id = o.copy_id"
+        "  JOIN titles t ON t.id = c.title_id"
+        " WHERE o.status='pending' ORDER BY o.id DESC").fetchall()
+    conn.close()
+    return {"orders": [dict(r) for r in rows]}
+
+
+def api_order_close(order_id, action):
+    """พนักงานปิดใบจอง — 'sell' = ลูกค้ามารับแล้วตัดขาย, 'cancel' = คืนเล่มเข้าสต็อก"""
+    conn = db()
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+    if not o:
+        conn.close()
+        return {"error": "ไม่พบใบจองนี้"}
+    if o["status"] != "pending":
+        conn.close()
+        return {"error": "ใบจองนี้ปิดไปแล้ว"}
+    c = conn.execute("SELECT * FROM copies WHERE id=?", (o["copy_id"],)).fetchone()
+    if action == "sell":
+        conn.execute("UPDATE copies SET status='sold' WHERE id=?", (o["copy_id"],))
+        conn.execute("INSERT INTO sales(copy_id,price,sold_at) VALUES(?,?,?)",
+                     (o["copy_id"], c["price"], now()))
+        conn.execute("UPDATE orders SET status='done' WHERE id=?", (order_id,))
+    else:
+        # คืนเข้าสต็อกเฉพาะเล่มที่ยังค้างสถานะจองอยู่ ถ้าพนักงานเผลอตัดขายไปทางอื่นแล้ว
+        # จะไม่ไปปลุกเล่มที่ขายแล้วให้กลับมาว่างอีก
+        if c["status"] == "reserved":
+            conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (o["copy_id"],))
+        conn.execute("UPDATE orders SET status='cancelled' WHERE id=?", (order_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "action": action}
 
 
 def _tool_search_books(query, mode="staff"):
@@ -1140,16 +1252,14 @@ def api_chat(history, mode="staff"):
         links = [{"label": f"รีวิว “{t['title']}” ใน Google", "url": _review_url(t)}
                  for t in books[:3]]
 
-    # โหมดลูกค้าไม่มีการ์ด (books ถูกล้างท้ายฟังก์ชัน) จึงส่งแค่ปกให้โชว์ในแชทแทน
-    # ถ้าลูกค้าขอดูรูปเพิ่ม (เช่น "มีรูปอื่นไหม") ส่งรูปทุกใบของเล่มแรกที่เจอ
-    # ปกติจะเหลือแค่เล่มเดียวอยู่แล้ว เพราะคำถามแบบนี้ถูกจับเป็นคำถามต่อเนื่องถึงเล่มที่คุยอยู่
+    # การ์ดลูกค้ามีรูปปกอยู่แล้ว จึงแนบรูปเพิ่มเฉพาะตอนลูกค้าขอดูรูปอื่นของเล่มนั้น
+    # (เช่น "ขอดูรูปเพิ่ม") ไม่งั้นจะเห็นปกเล่มเดียวกันซ้ำสองที่ในข้อความเดียว
     asked_photos = is_customer and any(w in user_msg for w in PHOTO_WORDS)
     if asked_photos and books:
         covers = [{"title": books[0]["title"], "file": im["file"]}
                   for im in _title_images(books[0]["id"])]
     else:
-        covers = ([{"title": b["title"], "file": b["cover_path"]}
-                   for b in books if b.get("cover_path")][:4]) if is_customer else []
+        covers = []
 
     # บอกโมเดลว่าระบบแนบรูปไปให้ลูกค้าแล้วกี่รูป ไม่งั้นมันไม่รู้ว่ามีรูป
     # แล้วตอบว่า "ไม่มีรูปให้ดู" ขณะที่รูปโชว์อยู่ในแชท = ขัดกันเองหน้าลูกค้า
@@ -1171,7 +1281,7 @@ def api_chat(history, mode="staff"):
 
     if not reply:
         reply = ("ไม่เจอเล่มที่ถามในร้านครับ" if not books
-                 else f"มีอยู่ {len(books)} เล่มครับ" if is_customer
+                 else f"มีอยู่ {len(books)} เล่มครับ เลือกดูจากด้านล่างได้เลย" if is_customer
                  else f"เจอ {len(books)} เล่มครับ ดูราคากับชั้นวางจากการ์ดด้านล่างเลย")
     # กันสัญลักษณ์ markdown หลุดออกจอ — หน้าเว็บแสดงข้อความล้วน ไม่ได้แปลง markdown
     # จึงเห็นเป็น *ชื่อหนังสือ* ติดดาวมาเลย
@@ -1179,7 +1289,8 @@ def api_chat(history, mode="staff"):
     reply = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", reply)
     reply = re.sub(r"\n{3,}", "\n\n", reply).strip()
     return {"reply": reply,
-            "books": [] if is_customer else books,   # โหมดลูกค้า = ไม่ส่งการ์ด
+            # โหมดลูกค้าได้การ์ดฉบับตัดข้อมูลหลังร้านออกแล้ว (ไม่มีชั้นวาง/ต้นทุน) + กดจองได้
+            "books": _customer_books(books) if is_customer else books,
             "links": links,
             "covers": covers}
 
@@ -1746,6 +1857,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_lookup(query.get("isbn")))
         if path == "/api/stats":
             return self._send(200, api_stats())
+        if path == "/api/orders":
+            return self._send(200, api_orders())
         if path == "/api/timing-stats":
             return self._send(200, api_timing_stats())
         if path == "/api/categories":
@@ -1792,6 +1905,9 @@ class Handler(BaseHTTPRequestHandler):
         # บัญชีลูกค้าโพสต์ได้เฉพาะ /api/chat และถูกบังคับให้เป็นโหมดลูกค้าเสมอ
         # (ส่ง mode:"staff" มาเองก็ไม่มีผล เพราะสิทธิ์อยู่ใน token ที่เซ็นไว้)
         if role == "customer":
+            # ลูกค้ากดจองเล่มจากการ์ดในแชทได้ แต่ยังแตะหลังร้านอย่างอื่นไม่ได้
+            if path == "/api/order":
+                return self._send(200, api_order(p))
             if path != "/api/chat":
                 return self._send(403, {"error": "บัญชีนี้ใช้ได้เฉพาะการถาม-ตอบหาหนังสือ"})
             history = p.get("messages") or []
@@ -1830,6 +1946,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, result)
         if path == "/api/sell":
             return self._send(200, api_sell(p.get("copy_id")))
+        if path == "/api/order":
+            return self._send(200, api_order(p))
+        if path == "/api/order-close":
+            act = "sell" if p.get("action") == "sell" else "cancel"
+            try:
+                oid = int(p.get("order_id"))
+            except (TypeError, ValueError):
+                return self._send(400, {"error": "ไม่พบใบจองนี้"})
+            return self._send(200, api_order_close(oid, act))
         if path == "/api/chat":
             history = p.get("messages") or []
             if not history:
