@@ -109,7 +109,7 @@ nav{
   pointer-events:none;
 }
 nav .wrap{
-  display:grid;grid-template-columns:repeat(5,1fr);gap:2px;
+  display:grid;grid-template-columns:repeat(6,1fr);gap:2px;
   max-width:520px;background:var(--panel);border:1px solid var(--line);
   border-radius:var(--r-lg);box-shadow:var(--shadow-md);
   padding:6px;pointer-events:auto;
@@ -299,28 +299,60 @@ td.num{text-align:right}
 }
 #sticker-box[hidden],#edit-box[hidden],#order-box[hidden]{display:none}
 
-/* ฟอร์มจองของลูกค้า */
+/* ฟอร์มสั่งซื้อของลูกค้า */
 #order-box .fld{display:block;font-size:.78rem;color:var(--muted);margin:0 0 10px}
-#order-box .fld input{
+#order-box .fld input,#order-box .fld textarea{
   width:100%;margin-top:4px;font-family:inherit;font-size:.9rem;color:var(--ink);
   background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;
 }
+#order-box .fld textarea{resize:vertical;min-height:60px}
+#order-box .fld-row{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+#order-form-scroll{overflow-y:auto;padding-right:2px}
 #order-summary{
   background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
   padding:10px 12px;margin:0 0 12px;font-size:.85rem;
 }
 #order-summary b{display:block;margin-bottom:2px}
 
-/* ใบจองฝั่งพนักงาน */
+/* คำสั่งซื้อฝั่งหลังบ้าน */
 .orders{display:flex;flex-direction:column;gap:9px}
 .order-row{
   display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;
-  border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--panel-2);
+  border:1px solid var(--line);border-radius:10px;padding:11px;background:var(--panel-2);
 }
-.order-main{flex:1;min-width:200px}
-.order-main b{font-size:.9rem}
-.order-main .meta{margin:2px 0 0}
-.order-actions{display:flex;gap:6px;flex-wrap:wrap}
+.order-row.st-pending{border-left:3px solid var(--warn,#f0b93d)}
+.order-row.st-paid{border-left:3px solid var(--accent)}
+.order-row.st-shipped{border-left:3px solid var(--ok,#4ade80)}
+.order-row.st-cancelled{opacity:.55}
+.order-main{flex:1;min-width:210px}
+.order-main b{font-size:.92rem}
+.order-main .meta{margin:3px 0 0}
+.order-addr{
+  margin:6px 0 0;font-size:.82rem;color:var(--ink);background:var(--panel);
+  border:1px dashed var(--line);border-radius:8px;padding:7px 9px;white-space:pre-wrap;
+}
+.order-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
+.track-in{
+  font-family:inherit;font-size:.8rem;color:var(--ink);width:150px;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 9px;
+}
+.order-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.order-id{font-family:var(--mono,monospace);font-size:.72rem;color:var(--muted)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.seg button{
+  appearance:none;font-family:inherit;font-size:.78rem;cursor:pointer;
+  padding:6px 12px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel);color:var(--muted);
+}
+.seg button[aria-pressed="true"]{background:var(--accent-grad);color:var(--accent-ink);border-color:transparent;font-weight:600}
+.tab-dot{
+  position:absolute;top:4px;right:calc(50% - 20px);
+  min-width:15px;height:15px;padding:0 3px;border-radius:999px;
+  background:var(--danger);color:#fff;font-size:.6rem;font-weight:700;
+  display:grid;place-items:center;line-height:1;
+}
+.tab-dot[hidden]{display:none}
+nav button{position:relative}
 .err-line{color:var(--danger);font-size:.8rem;margin:0 0 8px}
 .err-line[hidden]{display:none}
 .sticker-panel{
@@ -756,6 +788,21 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
     <div id="quote"></div>
   </section>
 
+  <!-- ============ คำสั่งซื้อ (หลังบ้าน) ============ -->
+  <section id="tab-orders" hidden>
+    <h2>คำสั่งซื้อจากลูกค้า</h2>
+    <p class="hint">ลูกค้ากดสั่งซื้อจากแชทเอง — เล่มที่สั่งถูกกันออกจากสต็อกไว้แล้ว รอร้านยืนยันและจัดส่ง</p>
+    <div id="order-tiles" class="tiles"></div>
+    <div class="seg" id="order-filter" role="tablist">
+      <button data-f="open" aria-pressed="true">ที่ต้องจัดการ</button>
+      <button data-f="pending" aria-pressed="false">รอชำระ</button>
+      <button data-f="paid" aria-pressed="false">รอจัดส่ง</button>
+      <button data-f="shipped" aria-pressed="false">ส่งแล้ว</button>
+      <button data-f="all" aria-pressed="false">ทั้งหมด</button>
+    </div>
+    <div id="orders-list"></div>
+  </section>
+
   <!-- ============ ภาพรวม ============ -->
   <section id="tab-stats" hidden>
     <h2>ภาพรวมร้าน</h2>
@@ -775,6 +822,9 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
       <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><path d="M17 15v6M14 18h6"/></svg>ลงสต็อก</button>
     <button role="tab" aria-selected="false" data-tab="buyback">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5-9-5z"/><path d="M3 15l9 5 9-5"/></svg>รับซื้อ</button>
+    <button role="tab" aria-selected="false" data-tab="orders">
+      <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 12h7M9 16h7"/></svg>คำสั่งซื้อ
+      <span class="tab-dot" id="orders-badge" hidden></span></button>
     <button role="tab" aria-selected="false" data-tab="stats">
       <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>ภาพรวม</button>
   </div>
@@ -803,21 +853,32 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
 </div>
 <div id="order-box" hidden>
   <div class="sticker-panel edit-panel">
-    <h3>จองเล่มนี้</h3>
-    <p class="hint">ทางร้านจะเก็บเล่มนี้ไว้ให้ แล้วมารับที่ร้านได้เลยครับ</p>
+    <h3>สั่งซื้อเล่มนี้</h3>
+    <p class="hint">กรอกที่อยู่จัดส่ง แล้วทางร้านจะติดต่อกลับเรื่องการชำระเงินครับ</p>
     <div id="order-summary"></div>
-    <label class="fld">ชื่อผู้จอง *
-      <input id="order-name" autocomplete="name" placeholder="ชื่อ-นามสกุล">
-    </label>
-    <label class="fld">เบอร์ติดต่อ *
-      <input id="order-phone" autocomplete="tel" inputmode="tel" placeholder="08x-xxx-xxxx">
-    </label>
-    <label class="fld">ข้อความถึงร้าน
-      <input id="order-note" placeholder="เช่น เข้าไปรับวันเสาร์">
-    </label>
+    <div id="order-form-scroll">
+      <div class="fld-row">
+        <label class="fld">ชื่อ *
+          <input id="order-first" autocomplete="given-name" placeholder="ชื่อจริง">
+        </label>
+        <label class="fld">นามสกุล *
+          <input id="order-last" autocomplete="family-name" placeholder="นามสกุล">
+        </label>
+      </div>
+      <label class="fld">เบอร์โทร *
+        <input id="order-phone" autocomplete="tel" inputmode="tel" placeholder="08x-xxx-xxxx">
+      </label>
+      <label class="fld">ที่อยู่จัดส่ง *
+        <textarea id="order-address" rows="3" autocomplete="street-address"
+          placeholder="บ้านเลขที่ ถนน ตำบล/แขวง อำเภอ/เขต จังหวัด รหัสไปรษณีย์"></textarea>
+      </label>
+      <label class="fld">ข้อความถึงร้าน
+        <input id="order-note" placeholder="เช่น รบกวนห่อกันน้ำด้วยครับ">
+      </label>
+    </div>
     <p class="err-line" id="order-err" hidden></p>
     <div class="row" style="margin-top:14px">
-      <button class="btn" id="btn-order-confirm">ยืนยันการจอง</button>
+      <button class="btn" id="btn-order-confirm">ยืนยันสั่งซื้อ</button>
       <button class="btn ghost" style="flex:none" id="btn-order-close">ยกเลิก</button>
     </div>
   </div>
@@ -875,7 +936,7 @@ get('me').then(me => {
   document.querySelectorAll('nav button').forEach(b => {
     if (b.dataset.tab !== 'search') b.remove();
   });
-  ['stock', 'stockin', 'buyback', 'stats'].forEach(t => {
+  ['stock', 'stockin', 'buyback', 'orders', 'stats'].forEach(t => {
     const el = $('tab-' + t);
     if (el) el.remove();
   });
@@ -892,9 +953,10 @@ document.querySelectorAll('nav button').forEach(b => {
   b.addEventListener('click', () => {
     document.querySelectorAll('nav button').forEach(x =>
       x.setAttribute('aria-selected', String(x === b)));
-    ['search','stock','stockin','buyback','stats'].forEach(t =>
+    ['search','stock','stockin','buyback','orders','stats'].forEach(t =>
       $('tab-' + t).hidden = (t !== b.dataset.tab));
     if (b.dataset.tab === 'stats') loadStats();
+    if (b.dataset.tab === 'orders') loadOrders();
     if (b.dataset.tab === 'stock') loadStock();
     // ปิดกล้องถ้าออกจากแท็บลงสต็อก ไม่ให้ค้างทำงานเบื้องหลัง
     if (b.dataset.tab !== 'stockin' && typeof stopScan === 'function') stopScan();
@@ -978,7 +1040,7 @@ function customerCardHTML(t) {
             <span class="price">${baht(c.price)}</span>
             <span class="spacer"></span>
             <button class="btn sm" data-order="${c.id}"
-              data-title="${esc(t.title)}" data-grade="${c.grade}" data-price="${c.price}">จองเล่มนี้</button>
+              data-title="${esc(t.title)}" data-grade="${c.grade}" data-price="${c.price}">สั่งซื้อเล่มนี้</button>
           </div>`).join('')}
       </div>
     </div>`;
@@ -1023,7 +1085,7 @@ $('stock-results').addEventListener('click', async e => {
   loadStock();
 });
 
-/* ---------- ลูกค้าจองเล่มจากการ์ดในแชท ---------- */
+/* ---------- ลูกค้าสั่งซื้อจากการ์ดในแชท ---------- */
 let orderCopyId = null;
 function openOrderModal(btn) {
   orderCopyId = Number(btn.dataset.order);
@@ -1031,7 +1093,7 @@ function openOrderModal(btn) {
     `<b>${esc(btn.dataset.title)}</b>สภาพ ${esc(btn.dataset.grade)} · ${baht(Number(btn.dataset.price))}`;
   $('order-err').hidden = true;
   $('order-box').hidden = false;
-  $('order-name').focus();
+  $('order-first').focus();
 }
 function closeOrderModal() { $('order-box').hidden = true; orderCopyId = null; }
 $('btn-order-close').addEventListener('click', closeOrderModal);
@@ -1039,24 +1101,29 @@ $('order-box').addEventListener('click', e => { if (e.target.id === 'order-box')
 $('btn-order-confirm').addEventListener('click', async () => {
   const btn = $('btn-order-confirm');
   const err = $('order-err');
-  const name = $('order-name').value.trim();
+  const first = $('order-first').value.trim();
+  const last = $('order-last').value.trim();
   const phone = $('order-phone').value.trim();
-  if (!name || !phone) {
-    err.textContent = 'กรุณากรอกชื่อและเบอร์ติดต่อครับ';
+  const address = $('order-address').value.trim();
+  if (!first || !last || !phone || !address) {
+    err.textContent = 'กรุณากรอกชื่อ นามสกุล เบอร์โทร และที่อยู่จัดส่งให้ครบครับ';
     err.hidden = false;
     return;
   }
   btn.disabled = true;
   const r = await post('order', {
-    copy_id: orderCopyId, customer_name: name, phone: phone, note: $('order-note').value.trim()
+    copy_id: orderCopyId, first_name: first, last_name: last,
+    phone: phone, address: address, note: $('order-note').value.trim()
   });
   btn.disabled = false;
   if (r.error) { err.textContent = r.error; err.hidden = false; return; }
   closeOrderModal();
-  ['order-name', 'order-phone', 'order-note'].forEach(id => { $(id).value = ''; });
-  addMsg('bot', `จองเรียบร้อยแล้วครับ 🎉<br>"${esc(r.title)}" สภาพ ${esc(r.grade)} ${baht(r.price)}`
-    + `<br>รหัสจอง <span class="mono">${esc(r.code)}</span> — ทางร้านเก็บเล่มนี้ไว้ให้แล้ว`
-    + ' แจ้งชื่อหรือรหัสจองตอนมารับที่ร้านได้เลยครับ');
+  ['order-first', 'order-last', 'order-phone', 'order-address', 'order-note']
+    .forEach(id => { $(id).value = ''; });
+  addMsg('bot', `สั่งซื้อเรียบร้อยแล้วครับ 🎉<br>"${esc(r.title)}" สภาพ ${esc(r.grade)} ${baht(r.price)}`
+    + `<br>เลขที่คำสั่งซื้อ <span class="mono">#${r.order_id}</span>`
+    + ` · รหัสเล่ม <span class="mono">${esc(r.code)}</span>`
+    + '<br>ทางร้านกันเล่มนี้ไว้ให้แล้ว เดี๋ยวติดต่อกลับเรื่องการชำระเงินและจัดส่งครับ');
 });
 
 // ปุ่ม "ขายเล่มนี้"/"จองเล่มนี้" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
@@ -1851,28 +1918,7 @@ function statsSkeleton() {
 
 async function loadStats() {
   $('stats').innerHTML = statsSkeleton();
-  const [s, t, o] = await Promise.all([get('stats'), get('timing-stats'), get('orders')]);
-  const orders = o.orders || [];
-  const orderCard = `
-    <div class="card">
-      <h3>ใบจองจากลูกค้า ${orders.length ? `<span class="badge high">${orders.length}</span>` : ''}</h3>
-      <p class="meta">ลูกค้ากดจองจากแชทเอง — เล่มที่จองถูกกันออกจากสต็อกไว้แล้ว รอลูกค้ามารับ</p>
-      ${orders.length ? `<div class="orders">${orders.map(r => `
-        <div class="order-row">
-          <div class="order-main">
-            <b>${esc(r.title)}</b>
-            <p class="meta">${esc(r.customer_name)} · ${esc(r.phone)}
-              · <span class="mono">${esc(r.code)}</span> · ชั้น <span class="mono">${esc(r.shelf)}</span>
-              · สภาพ ${esc(r.grade)} ${baht(r.price)}</p>
-            ${r.note ? `<p class="syn">“${esc(r.note)}”</p>` : ''}
-          </div>
-          <div class="order-actions">
-            <button class="btn sm" data-order-sell="${r.id}">ลูกค้ามารับแล้ว</button>
-            <button class="btn ghost sm" data-order-cancel="${r.id}">ยกเลิก</button>
-          </div>
-        </div>`).join('')}</div>`
-        : '<p class="hint" style="margin:0">ยังไม่มีใบจองค้างอยู่</p>'}
-    </div>`;
+  const [s, t] = await Promise.all([get('stats'), get('timing-stats')]);
   const engRows = Object.entries(t.ai_read_by_engine || {}).map(([eng, v]) => `
     <tr><td>${esc(eng)}</td><td class="num mono">${(v.avg_ms/1000).toFixed(1)}s</td>
       <td class="num mono">${(v.median_ms/1000).toFixed(1)}s</td>
@@ -1898,7 +1944,7 @@ async function loadStats() {
         </div>` : `<p class="hint" style="margin:10px 0 0">
           ยังไม่มีข้อมูลเวลารวมต่อเล่ม — เกิดจากถ่ายรูปเล่มแรกจนกดบันทึกเข้าสต็อกสำเร็จ</p>`}
     </div>`;
-  $('stats').innerHTML = `${orderCard}${timingCard}
+  $('stats').innerHTML = `${timingCard}
     <div class="tiles">
       <div class="tile"><p class="k">รายการหนังสือ (ชื่อเรื่อง)</p><p class="v">${s.titles.toLocaleString('th-TH')}</p></div>
       <div class="tile"><p class="k">เล่มคงเหลือ</p><p class="v">${s.in_stock.toLocaleString('th-TH')}</p></div>
@@ -1929,21 +1975,110 @@ async function loadStats() {
     </div>`;
 }
 
-// ปุ่มปิดใบจอง — การ์ดถูกสร้างใหม่ทุกครั้งที่โหลดสถิติ จึงผูกที่กล่องแม่ตัวเดียว
-$('stats').addEventListener('click', async e => {
-  const sellBtn = e.target.closest('[data-order-sell]');
-  const cancelBtn = e.target.closest('[data-order-cancel]');
-  const btn = sellBtn || cancelBtn;
-  if (!btn) return;
-  btn.disabled = true;
-  const r = await post('order-close', {
-    order_id: Number(sellBtn ? sellBtn.dataset.orderSell : cancelBtn.dataset.orderCancel),
-    action: sellBtn ? 'sell' : 'cancel'
-  });
-  if (r.error) { toast(r.error, 'error'); btn.disabled = false; return; }
-  toast(sellBtn ? 'ตัดขายเรียบร้อย บันทึกยอดขายแล้ว' : 'ยกเลิกใบจอง คืนเล่มเข้าสต็อกแล้ว');
-  loadStats();
+/* ---------- หลังบ้าน: จัดการคำสั่งซื้อ ---------- */
+const ORDER_LABEL = {pending: 'รอชำระเงิน', paid: 'ชำระแล้ว รอจัดส่ง',
+                     shipped: 'จัดส่งแล้ว', cancelled: 'ยกเลิก'};
+const ORDER_BADGE = {pending: 'medium', paid: 'high', shipped: 'high', cancelled: 'low'};
+let orderFilter = 'open';
+let ORDERS_CACHE = [];
+
+function orderRowHTML(r) {
+  const acts = r.status === 'pending'
+    ? `<button class="btn sm" data-oact="pay" data-oid="${r.id}">ยืนยันรับเงินแล้ว</button>
+       <button class="btn ghost sm" data-oact="cancel" data-oid="${r.id}">ยกเลิก</button>`
+    : r.status === 'paid'
+    ? `<input class="track-in" id="track-${r.id}" placeholder="เลขพัสดุ (ไม่ใส่ก็ได้)">
+       <button class="btn sm" data-oact="ship" data-oid="${r.id}">บันทึกจัดส่ง</button>
+       <button class="btn ghost sm" data-oact="cancel" data-oid="${r.id}">ยกเลิก/คืนเงิน</button>`
+    : '';
+  return `
+    <div class="order-row st-${r.status}">
+      <div class="order-main">
+        <div class="order-head">
+          <b>${esc(r.title)}</b>
+          <span class="badge ${ORDER_BADGE[r.status]}">${ORDER_LABEL[r.status]}</span>
+          <span class="order-id">#${r.id}</span>
+        </div>
+        <p class="meta">${esc(r.customer_name)} · ${esc(r.phone || '-')}
+          · <span class="mono">${esc(r.code)}</span> · ชั้น <span class="mono">${esc(r.shelf)}</span>
+          · สภาพ ${esc(r.grade)} <b>${baht(r.price)}</b></p>
+        ${r.address ? `<p class="order-addr">${esc(r.address)}</p>` : ''}
+        ${r.note ? `<p class="syn">“${esc(r.note)}”</p>` : ''}
+        ${r.tracking ? `<p class="meta">เลขพัสดุ <span class="mono">${esc(r.tracking)}</span></p>` : ''}
+      </div>
+      ${acts ? `<div class="order-actions">${acts}</div>` : ''}
+    </div>`;
+}
+
+function renderOrders() {
+  const rows = ORDERS_CACHE.filter(r =>
+    orderFilter === 'all' ? true
+    : orderFilter === 'open' ? (r.status === 'pending' || r.status === 'paid')
+    : r.status === orderFilter);
+  $('orders-list').innerHTML = rows.length
+    ? `<div class="orders">${rows.map(orderRowHTML).join('')}</div>`
+    : '<p class="empty">ไม่มีคำสั่งซื้อในหมวดนี้</p>';
+}
+
+async function loadOrders() {
+  $('orders-list').innerHTML = '<p class="empty"><span class="spin"></span> กำลังโหลด...</p>';
+  const d = await get('orders');
+  ORDERS_CACHE = d.orders || [];
+  const c = d.counts || {};
+  $('order-tiles').innerHTML = `
+    <div class="tile"><p class="k">รอชำระเงิน</p><p class="v">${c.pending || 0}</p></div>
+    <div class="tile"><p class="k">รอจัดส่ง</p><p class="v">${c.paid || 0}</p></div>
+    <div class="tile"><p class="k">จัดส่งแล้ว</p><p class="v">${c.shipped || 0}</p></div>
+    <div class="tile"><p class="k">ยอดขายจากแชท</p><p class="v">${baht(d.revenue || 0)}</p></div>`;
+  renderOrders();
+  updateOrderBadge(d.open || 0);
+}
+
+// ตัวเลขแดงบนแท็บ ให้พนักงานเห็นว่ามีของใหม่เข้าโดยไม่ต้องเปิดแท็บ
+function updateOrderBadge(n) {
+  const el = $('orders-badge');
+  if (!el) return;
+  el.textContent = n > 99 ? '99+' : n;
+  el.hidden = !n;
+}
+async function refreshOrderBadge() {
+  try {
+    const d = await get('orders');
+    updateOrderBadge(d.open || 0);
+  } catch (e) { /* ไม่ต้องรบกวนผู้ใช้ถ้าเช็คไม่ได้ */ }
+}
+
+$('order-filter').addEventListener('click', e => {
+  const b = e.target.closest('button[data-f]');
+  if (!b) return;
+  orderFilter = b.dataset.f;
+  $('order-filter').querySelectorAll('button').forEach(x =>
+    x.setAttribute('aria-pressed', String(x === b)));
+  renderOrders();
 });
+
+$('orders-list').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-oact]');
+  if (!btn) return;
+  const act = btn.dataset.oact;
+  const id = Number(btn.dataset.oid);
+  let tracking = '';
+  if (act === 'ship') {
+    const tin = $('track-' + id);
+    tracking = tin ? tin.value.trim() : '';
+  } else if (act === 'cancel' && !confirm('ยกเลิกคำสั่งซื้อนี้? เล่มจะถูกคืนเข้าสต็อก')) {
+    return;
+  }
+  btn.disabled = true;
+  const r = await post('order-update', {order_id: id, action: act, tracking: tracking});
+  if (r.error) { toast(r.error, 'error'); btn.disabled = false; return; }
+  toast(act === 'pay' ? 'ยืนยันรับเงินแล้ว บันทึกยอดขายให้เรียบร้อย'
+      : act === 'ship' ? 'บันทึกจัดส่งเรียบร้อย'
+      : 'ยกเลิกคำสั่งซื้อ คืนเล่มเข้าสต็อกแล้ว');
+  loadOrders();
+});
+
+refreshOrderBadge();
 
 </script>
 </body>

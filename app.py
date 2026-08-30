@@ -270,6 +270,11 @@ def init_db():
                  "customer_name TEXT NOT NULL, phone TEXT, note TEXT,"
                  "status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+    ocols = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
+    # ที่อยู่จัดส่ง + เลขพัสดุ + เวลาแต่ละขั้น — เพิ่มทีหลังตอนเปลี่ยนจาก "จอง" เป็น "สั่งซื้อจริง"
+    for col in ("address TEXT", "tracking TEXT", "paid_at TEXT", "shipped_at TEXT"):
+        if col.split()[0] not in ocols:
+            conn.execute(f"ALTER TABLE orders ADD COLUMN {col}")
     # ย้ายรูปปกเดี่ยวที่เคยเก็บไว้ก่อนหน้านี้ (titles.cover_path) เข้าตารางใหม่
     # ให้เป็นรูปที่ 1 ของแต่ละเล่ม ไม่ให้ของเดิมที่นุ่นสแกนไปแล้วหายไป
     conn.execute("INSERT INTO title_images(title_id, file, label, position, created_at)"
@@ -817,11 +822,11 @@ CHAT_PROMPT_CUSTOMER = (
     "ข้อมูลอะไรไว้ในระบบ** เพราะลูกค้าไม่ต้องรู้เรื่องระบบหลังร้าน\n"
     # ระบบแนบการ์ดหนังสือ (รูปปก ราคา สภาพ ปุ่มจอง) ไปใต้ข้อความให้อยู่แล้ว
     # จึงห้ามไล่รายละเอียดซ้ำในข้อความ ไม่งั้นลูกค้าอ่านข้อมูลเดียวกัน 2 รอบ
-    "- ระบบแนบการ์ดหนังสือใต้ข้อความให้ลูกค้าแล้ว (มีรูปปก ราคา สภาพ และปุ่มกดจอง) "
+    "- ระบบแนบการ์ดหนังสือใต้ข้อความให้ลูกค้าแล้ว (มีรูปปก ราคา สภาพ และปุ่มสั่งซื้อ) "
     "**ถ้าเจอมากกว่า 1 เล่ม ให้บอกสั้นๆ ว่ามีกี่เล่มแล้วชวนดูการ์ด** "
     "เช่น 'มีอยู่ 3 เล่มครับ เลือกดูจากด้านล่างได้เลย' **ห้ามไล่ชื่อและราคาทีละเล่มในข้อความ**\n"
-    "- ถ้าลูกค้าถามว่าจอง/สั่งซื้อยังไง ให้บอกว่ากดปุ่ม 'จองเล่มนี้' ที่การ์ดได้เลย "
-    "แล้วทางร้านจะเก็บเล่มไว้ให้มารับที่ร้าน"
+    "- ถ้าลูกค้าถามว่าซื้อ/สั่งยังไง ให้บอกว่ากดปุ่ม 'สั่งซื้อเล่มนี้' ที่การ์ดได้เลย "
+    "กรอกชื่อ เบอร์โทร และที่อยู่จัดส่ง แล้วทางร้านจะติดต่อกลับเรื่องการชำระเงินและจัดส่งให้"
 )
 
 # โหมดพนักงาน — เห็นข้อมูลครบ มีการ์ดสรุปให้ ทำงานเร็ว
@@ -941,18 +946,30 @@ def _customer_books(titles):
     return out
 
 
+# สถานะคำสั่งซื้อ: pending (รอชำระ) -> paid (ชำระแล้ว รอส่ง) -> shipped (ส่งแล้ว)
+# ยกเลิกได้ทั้ง pending และ paid (ถ้ายกเลิกหลังชำระ = คืนเงิน ต้องถอนยอดขายออกด้วย)
+ORDER_FLOW = {"pending": "รอชำระเงิน", "paid": "ชำระแล้ว รอจัดส่ง",
+              "shipped": "จัดส่งแล้ว", "cancelled": "ยกเลิก"}
+
+
 def api_order(p):
-    """ลูกค้ากดจองเล่มจากการ์ดในแชท — จองไว้ให้ แล้วมารับที่ร้าน"""
-    name = str(p.get("customer_name") or "").strip()
-    if not name:
-        return {"error": "กรุณากรอกชื่อผู้จอง"}
+    """ลูกค้ากดสั่งซื้อจากการ์ดในแชท — เก็บที่อยู่จัดส่งไว้ให้ร้านส่งของ"""
+    first = str(p.get("first_name") or "").strip()
+    last = str(p.get("last_name") or "").strip()
+    # รองรับรูปแบบเดิมที่ส่งชื่อมาช่องเดียว
+    name = (f"{first} {last}".strip()) or str(p.get("customer_name") or "").strip()
+    if not first or not last:
+        return {"error": "กรุณากรอกทั้งชื่อและนามสกุล"}
     phone = str(p.get("phone") or "").strip()
-    if not phone:
-        return {"error": "กรุณากรอกเบอร์ติดต่อ"}
+    if len(re.sub(r"\D", "", phone)) < 9:
+        return {"error": "กรุณากรอกเบอร์โทรให้ถูกต้อง"}
+    address = str(p.get("address") or "").strip()
+    if len(address) < 10:
+        return {"error": "กรุณากรอกที่อยู่จัดส่งให้ครบ (บ้านเลขที่ ตำบล อำเภอ จังหวัด รหัสไปรษณีย์)"}
     try:
         copy_id = int(p.get("copy_id"))
     except (TypeError, ValueError):
-        return {"error": "ไม่พบเล่มที่ต้องการจอง"}
+        return {"error": "ไม่พบเล่มที่ต้องการสั่งซื้อ"}
 
     conn = db()
     c = conn.execute("SELECT * FROM copies WHERE id=?", (copy_id,)).fetchone()
@@ -961,55 +978,84 @@ def api_order(p):
         return {"error": "ไม่พบเล่มนี้"}
     if c["status"] == "reserved":
         conn.close()
-        return {"error": "ขออภัยครับ เล่มนี้เพิ่งมีคนจองไปแล้ว"}
+        return {"error": "ขออภัยครับ เล่มนี้เพิ่งมีคนสั่งซื้อไปแล้ว"}
     if c["status"] != "in_stock":
         conn.close()
         return {"error": "ขออภัยครับ เล่มนี้ขายไปแล้ว"}
     conn.execute("UPDATE copies SET status='reserved' WHERE id=?", (copy_id,))
-    cur = conn.execute("INSERT INTO orders(copy_id,customer_name,phone,note,status,created_at)"
-                       " VALUES(?,?,?,?,'pending',?)",
-                       (copy_id, name, phone, str(p.get("note") or "").strip() or None, now()))
+    cur = conn.execute(
+        "INSERT INTO orders(copy_id,customer_name,phone,address,note,status,created_at)"
+        " VALUES(?,?,?,?,?,'pending',?)",
+        (copy_id, name, phone, address, str(p.get("note") or "").strip() or None, now()))
     conn.commit()
     t = conn.execute("SELECT title FROM titles WHERE id=?", (c["title_id"],)).fetchone()
     conn.close()
-    return {"ok": True, "order_id": cur.lastrowid, "title": t["title"],
+    return {"ok": True, "order_id": cur.lastrowid, "title": t["title"], "name": name,
             "price": c["price"], "grade": c["grade"], "code": c["code"]}
 
 
 def api_orders():
-    """รายการจองที่ยังรอรับ — ฝั่งพนักงานเท่านั้น"""
+    """คำสั่งซื้อทั้งหมดสำหรับหลังบ้าน — ที่ยังไม่ปิดขึ้นก่อน"""
     conn = db()
     rows = conn.execute(
-        "SELECT o.id, o.customer_name, o.phone, o.note, o.created_at,"
+        "SELECT o.id, o.customer_name, o.phone, o.address, o.note, o.status,"
+        "       o.created_at, o.paid_at, o.shipped_at, o.tracking,"
         "       c.id copy_id, c.grade, c.price, c.shelf, c.code, t.title"
         "  FROM orders o JOIN copies c ON c.id = o.copy_id"
         "  JOIN titles t ON t.id = c.title_id"
-        " WHERE o.status='pending' ORDER BY o.id DESC").fetchall()
+        " ORDER BY CASE o.status WHEN 'pending' THEN 0 WHEN 'paid' THEN 1"
+        "                        WHEN 'shipped' THEN 2 ELSE 3 END, o.id DESC").fetchall()
+    orders = [dict(r) for r in rows]
     conn.close()
-    return {"orders": [dict(r) for r in rows]}
+    counts = {k: 0 for k in ORDER_FLOW}
+    revenue = 0.0
+    for o in orders:
+        counts[o["status"]] = counts.get(o["status"], 0) + 1
+        if o["status"] in ("paid", "shipped"):
+            revenue += o["price"] or 0
+    return {"orders": orders, "counts": counts, "revenue": revenue,
+            "open": counts.get("pending", 0) + counts.get("paid", 0)}
 
 
-def api_order_close(order_id, action):
-    """พนักงานปิดใบจอง — 'sell' = ลูกค้ามารับแล้วตัดขาย, 'cancel' = คืนเล่มเข้าสต็อก"""
+def api_order_update(order_id, action, tracking=""):
+    """หลังบ้านเดินสถานะคำสั่งซื้อ — pay / ship / cancel
+
+    ตัดยอดขายตอน 'pay' (เงินเข้าแล้ว) ไม่ใช่ตอนส่งของ เพื่อให้รายงานรายได้ตรงกับเงินจริง
+    ถ้ายกเลิกหลังชำระ ต้องถอนรายการขายออกด้วย ไม่งั้นยอดขายค้างเกินจริง
+    """
     conn = db()
     o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
     if not o:
         conn.close()
-        return {"error": "ไม่พบใบจองนี้"}
-    if o["status"] != "pending":
+        return {"error": "ไม่พบคำสั่งซื้อนี้"}
+    st = o["status"]
+    if st in ("shipped", "cancelled"):
         conn.close()
-        return {"error": "ใบจองนี้ปิดไปแล้ว"}
-    c = conn.execute("SELECT * FROM copies WHERE id=?", (o["copy_id"],)).fetchone()
-    if action == "sell":
-        conn.execute("UPDATE copies SET status='sold' WHERE id=?", (o["copy_id"],))
+        return {"error": "คำสั่งซื้อนี้ปิดไปแล้ว"}
+    cid = o["copy_id"]
+    c = conn.execute("SELECT * FROM copies WHERE id=?", (cid,)).fetchone()
+
+    if action == "pay":
+        if st != "pending":
+            conn.close()
+            return {"error": "คำสั่งซื้อนี้ยืนยันการชำระไปแล้ว"}
+        conn.execute("UPDATE copies SET status='sold' WHERE id=?", (cid,))
         conn.execute("INSERT INTO sales(copy_id,price,sold_at) VALUES(?,?,?)",
-                     (o["copy_id"], c["price"], now()))
-        conn.execute("UPDATE orders SET status='done' WHERE id=?", (order_id,))
-    else:
-        # คืนเข้าสต็อกเฉพาะเล่มที่ยังค้างสถานะจองอยู่ ถ้าพนักงานเผลอตัดขายไปทางอื่นแล้ว
-        # จะไม่ไปปลุกเล่มที่ขายแล้วให้กลับมาว่างอีก
-        if c["status"] == "reserved":
-            conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (o["copy_id"],))
+                     (cid, c["price"], now()))
+        conn.execute("UPDATE orders SET status='paid', paid_at=? WHERE id=?", (now(), order_id))
+    elif action == "ship":
+        if st != "paid":
+            conn.close()
+            return {"error": "ต้องยืนยันการชำระเงินก่อนจึงจะกดจัดส่งได้"}
+        conn.execute("UPDATE orders SET status='shipped', shipped_at=?, tracking=? WHERE id=?",
+                     (now(), tracking.strip() or None, order_id))
+    else:  # cancel
+        if st == "paid":
+            # ถอนรายการขายของเล่มนี้ออก แล้วคืนเล่มเข้าสต็อก
+            conn.execute("DELETE FROM sales WHERE copy_id=?", (cid,))
+            conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (cid,))
+        elif c["status"] == "reserved":
+            conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (cid,))
         conn.execute("UPDATE orders SET status='cancelled' WHERE id=?", (order_id,))
     conn.commit()
     conn.close()
@@ -1948,13 +1994,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_sell(p.get("copy_id")))
         if path == "/api/order":
             return self._send(200, api_order(p))
-        if path == "/api/order-close":
-            act = "sell" if p.get("action") == "sell" else "cancel"
+        if path == "/api/order-update":
+            act = p.get("action")
+            act = act if act in ("pay", "ship", "cancel") else "cancel"
             try:
                 oid = int(p.get("order_id"))
             except (TypeError, ValueError):
-                return self._send(400, {"error": "ไม่พบใบจองนี้"})
-            return self._send(200, api_order_close(oid, act))
+                return self._send(400, {"error": "ไม่พบคำสั่งซื้อนี้"})
+            return self._send(200, api_order_update(oid, act, str(p.get("tracking") or "")))
         if path == "/api/chat":
             history = p.get("messages") or []
             if not history:
