@@ -6,63 +6,80 @@
 <title>เข้าสู่ระบบ — ร้านหนังสือมือสอง</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=Kanit:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --ground:#050810; --panel:#0c1220; --panel-2:#121b30;
-  --ink:#e8edf9; --muted:#7c8bab; --line:#20304d;
-  --accent:#2f7bff; --accent-2:#22d3ee; --accent-ink:#fff;
-  --accent-grad:linear-gradient(135deg,var(--accent),var(--accent-2));
-  --danger:#ff7a7a;
+  --ground:#080c15;
+  --panel:rgba(15, 23, 42, 0.75);
+  --panel-2:rgba(30, 41, 59, 0.6);
+  --ink:#f8fafc;
+  --muted:#94a3b8;
+  --line:rgba(255, 255, 255, 0.08);
+  --accent:#3b82f6;
+  --accent-2:#60a5fa;
+  --accent-ink:#fff;
+  --accent-grad:linear-gradient(135deg, #2563eb, #38bdf8);
+  --accent-glow:rgba(59, 130, 246, 0.25);
+  --danger:#f87171;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
 body{
-  background:var(--ground);color:var(--ink);
-  font-family:'Kanit',system-ui,sans-serif;
+  background-color:var(--ground);
+  background-image:
+    radial-gradient(1000px 500px at 50% -50px, rgba(59, 130, 246, 0.15), transparent 80%),
+    radial-gradient(800px 400px at 85% 30%, rgba(99, 102, 241, 0.07), transparent 70%),
+    radial-gradient(600px 300px at 15% 60%, rgba(14, 165, 233, 0.06), transparent 70%);
+  color:var(--ink);
+  font-family:'Plus Jakarta Sans','IBM Plex Sans Thai','Kanit',system-ui,sans-serif;
   display:grid;place-items:center;padding:24px;
+  -webkit-font-smoothing:antialiased;
 }
 .card{
-  width:100%;max-width:380px;
-  background:var(--panel);border:1px solid var(--line);border-radius:20px;
-  padding:32px 26px;box-shadow:0 24px 60px -24px rgba(0,0,0,.8);
+  width:100%;max-width:390px;
+  background:var(--panel);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(255,255,255,0.09);border-radius:24px;
+  padding:36px 28px;box-shadow:0 24px 60px -20px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,0.05);
 }
 .logo{
-  width:52px;height:52px;border-radius:14px;background:var(--accent-grad);
+  width:54px;height:54px;border-radius:16px;background:var(--accent-grad);
   display:grid;place-items:center;margin:0 auto 18px;
-  box-shadow:0 0 0 6px rgba(47,123,255,.16);
+  box-shadow:0 0 0 5px var(--accent-glow), 0 8px 24px rgba(37, 99, 235, 0.4);
 }
-.logo svg{width:26px;height:26px;stroke:var(--accent-ink);fill:none;stroke-width:2}
+.logo svg{width:28px;height:28px;stroke:var(--accent-ink);fill:none;stroke-width:2.2}
 h1{
-  font-family:'Chakra Petch',sans-serif;font-size:1.3rem;font-weight:700;
-  text-align:center;margin:0 0 4px;letter-spacing:-.01em;
+  font-family:'Plus Jakarta Sans','Kanit',sans-serif;font-size:1.35rem;font-weight:700;
+  text-align:center;margin:0 0 4px;letter-spacing:-.015em;color:#fff;
 }
-.sub{text-align:center;color:var(--muted);font-size:.85rem;margin:0 0 26px}
-label{display:block;font-size:.8rem;color:var(--muted);margin:0 0 5px}
+.sub{text-align:center;color:var(--muted);font-size:.85rem;margin:0 0 28px}
+label{display:block;font-size:.82rem;font-weight:500;color:var(--muted);margin:0 0 6px}
 input{
-  width:100%;font-family:inherit;font-size:.98rem;color:var(--ink);
-  background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
-  padding:12px 14px;margin-bottom:14px;
-  transition:border-color .17s ease, box-shadow .17s ease;
+  width:100%;font-family:inherit;font-size:.96rem;color:var(--ink);
+  background:rgba(15, 23, 42, 0.6);border:1px solid rgba(255, 255, 255, 0.09);border-radius:12px;
+  padding:12px 14px;margin-bottom:16px;
+  transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,123,255,.28)}
+input:focus{outline:none;border-color:var(--accent);background:rgba(15, 23, 42, 0.9);box-shadow:0 0 0 3px var(--accent-glow)}
 button{
-  width:100%;appearance:none;border:0;cursor:pointer;
-  font-family:inherit;font-size:.98rem;font-weight:600;
+  width:100%;appearance:none;border:1px solid rgba(255, 255, 255, 0.15);cursor:pointer;
+  font-family:inherit;font-size:1rem;font-weight:600;
   background:var(--accent-grad);color:var(--accent-ink);
-  padding:13px;border-radius:10px;margin-top:4px;
-  transition:transform .12s ease, filter .17s ease;
+  padding:13px;border-radius:12px;margin-top:6px;
+  box-shadow:0 4px 14px rgba(37, 99, 235, 0.35);
+  transition:transform .12s ease, filter .18s ease, box-shadow .18s ease;
 }
-button:hover{filter:brightness(1.08)}
-button:active{transform:scale(.98)}
-button:disabled{opacity:.55;cursor:not-allowed}
+button:hover{filter:brightness(1.09);box-shadow:0 6px 20px rgba(37, 99, 235, 0.45)}
+button:active{transform:scale(.98);box-shadow:none}
+button:disabled{opacity:.5;cursor:not-allowed}
 .msg{
   min-height:20px;margin:14px 0 0;font-size:.85rem;text-align:center;color:var(--danger);
 }
-.foot{margin:20px 0 0;text-align:center;font-size:.74rem;color:var(--muted);line-height:1.6}
+.foot{margin:22px 0 0;text-align:center;font-size:.74rem;color:var(--muted);line-height:1.6}
 .spin{
-  display:inline-block;width:13px;height:13px;border:2px solid var(--line);
-  border-top-color:var(--accent);border-radius:50%;
+  display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.15);
+  border-top-color:var(--accent-2);border-radius:50%;
   animation:sp .7s linear infinite;vertical-align:-2px;
 }
 @keyframes sp{to{transform:rotate(360deg)}}
