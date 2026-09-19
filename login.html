@@ -6,80 +6,209 @@
 <title>เข้าสู่ระบบ — ร้านหนังสือมือสอง</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=Kanit:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Kanit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --ground:#080c15;
-  --panel:rgba(15, 23, 42, 0.75);
+  --panel:rgba(15, 23, 42, 0.78);
   --panel-2:rgba(30, 41, 59, 0.6);
   --ink:#f8fafc;
   --muted:#94a3b8;
   --line:rgba(255, 255, 255, 0.08);
+  --line-hover:rgba(255, 255, 255, 0.16);
+  
   --accent:#3b82f6;
   --accent-2:#60a5fa;
-  --accent-ink:#fff;
+  --accent-ink:#ffffff;
   --accent-grad:linear-gradient(135deg, #2563eb, #38bdf8);
   --accent-glow:rgba(59, 130, 246, 0.25);
+  
+  --cust-accent:#0ea5e9;
+  --cust-grad:linear-gradient(135deg, #0284c7, #38bdf8);
+  --cust-glow:rgba(14, 165, 233, 0.25);
+  
   --danger:#f87171;
+  --ok:#34d399;
+  
+  --shadow-card:0 24px 60px -20px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,0.06);
+  --dur:180ms;
+  --ease:cubic-bezier(0.16, 1, 0.3, 1);
 }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;height:100%}
+html,body{margin:0;padding:0;min-height:100%}
 body{
   background-color:var(--ground);
   background-image:
-    radial-gradient(1000px 500px at 50% -50px, rgba(59, 130, 246, 0.15), transparent 80%),
-    radial-gradient(800px 400px at 85% 30%, rgba(99, 102, 241, 0.07), transparent 70%),
-    radial-gradient(600px 300px at 15% 60%, rgba(14, 165, 233, 0.06), transparent 70%);
+    radial-gradient(1100px 520px at 50% -100px, rgba(59, 130, 246, 0.15), transparent 80%),
+    radial-gradient(900px 450px at 85% 25%, rgba(99, 102, 241, 0.08), transparent 70%),
+    radial-gradient(700px 350px at 15% 55%, rgba(14, 165, 233, 0.06), transparent 70%),
+    linear-gradient(180deg, rgba(255,255,255,0.012) 0%, transparent 100%);
   color:var(--ink);
   font-family:'Plus Jakarta Sans','IBM Plex Sans Thai','Kanit',system-ui,sans-serif;
-  display:grid;place-items:center;padding:24px;
+  display:grid;place-items:center;padding:24px 16px;
   -webkit-font-smoothing:antialiased;
 }
-.card{
-  width:100%;max-width:390px;
-  background:var(--panel);
-  backdrop-filter:blur(20px);
-  -webkit-backdrop-filter:blur(20px);
-  border:1px solid rgba(255,255,255,0.09);border-radius:24px;
-  padding:36px 28px;box-shadow:0 24px 60px -20px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,0.05);
+
+.login-wrap{
+  width:100%;max-width:420px;
 }
+
+/* Card */
+.card{
+  background:var(--panel);
+  backdrop-filter:blur(24px);
+  -webkit-backdrop-filter:blur(24px);
+  border:1px solid rgba(255,255,255,0.09);border-radius:24px;
+  padding:28px 24px 30px;
+  box-shadow:var(--shadow-card);
+}
+
+/* Role Switcher Tabs */
+.role-tabs{
+  display:grid;grid-template-columns:1fr 1fr;gap:6px;
+  background:rgba(15, 23, 42, 0.7);
+  border:1px solid rgba(255, 255, 255, 0.08);
+  border-radius:14px;padding:4px;margin-bottom:24px;
+}
+.role-tab{
+  appearance:none;border:1px solid transparent;background:transparent;
+  color:var(--muted);font-family:inherit;font-size:0.86rem;font-weight:600;
+  padding:10px 8px;border-radius:10px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  transition:all var(--dur) var(--ease);
+}
+.role-tab:hover{color:#fff;background:rgba(255,255,255,0.04)}
+.role-tab.active{
+  color:#fff;
+  background:rgba(59, 130, 246, 0.16);
+  border-color:rgba(96, 165, 250, 0.35);
+  box-shadow:0 0 16px -2px rgba(59, 130, 246, 0.3);
+}
+.role-tab.active[data-role="customer"]{
+  background:rgba(14, 165, 233, 0.16);
+  border-color:rgba(56, 189, 248, 0.35);
+  box-shadow:0 0 16px -2px rgba(14, 165, 233, 0.3);
+}
+
+/* Logo & Header */
+.header-box{text-align:center;margin-bottom:20px}
 .logo{
-  width:54px;height:54px;border-radius:16px;background:var(--accent-grad);
-  display:grid;place-items:center;margin:0 auto 18px;
+  width:52px;height:52px;border-radius:15px;
+  display:grid;place-items:center;margin:0 auto 14px;
+  transition:all 0.25s var(--ease);
+}
+.logo.staff{
+  background:var(--accent-grad);
   box-shadow:0 0 0 5px var(--accent-glow), 0 8px 24px rgba(37, 99, 235, 0.4);
 }
-.logo svg{width:28px;height:28px;stroke:var(--accent-ink);fill:none;stroke-width:2.2}
+.logo.customer{
+  background:var(--cust-grad);
+  box-shadow:0 0 0 5px var(--cust-glow), 0 8px 24px rgba(2, 132, 199, 0.4);
+}
+.logo svg{width:26px;height:26px;stroke:#fff;fill:none;stroke-width:2.2}
+
 h1{
-  font-family:'Plus Jakarta Sans','Kanit',sans-serif;font-size:1.35rem;font-weight:700;
+  font-family:'Plus Jakarta Sans','Kanit',sans-serif;font-size:1.32rem;font-weight:700;
   text-align:center;margin:0 0 4px;letter-spacing:-.015em;color:#fff;
 }
-.sub{text-align:center;color:var(--muted);font-size:.85rem;margin:0 0 28px}
-label{display:block;font-size:.82rem;font-weight:500;color:var(--muted);margin:0 0 6px}
+.sub{text-align:center;color:var(--muted);font-size:.82rem;margin:0 0 12px;line-height:1.45}
+
+.role-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:0.72rem;font-weight:600;padding:3px 10px;border-radius:99px;
+  margin-bottom:6px;
+}
+.role-badge.staff{
+  background:rgba(59, 130, 246, 0.12);
+  border:1px solid rgba(96, 165, 250, 0.3);
+  color:#93c5fd;
+}
+.role-badge.customer{
+  background:rgba(14, 165, 233, 0.12);
+  border:1px solid rgba(56, 189, 248, 0.3);
+  color:#7dd3fc;
+}
+
+/* Form bits */
+.field{margin-bottom:14px}
+label{display:block;font-size:.8rem;font-weight:500;color:var(--muted);margin:0 0 6px}
 input{
-  width:100%;font-family:inherit;font-size:.96rem;color:var(--ink);
-  background:rgba(15, 23, 42, 0.6);border:1px solid rgba(255, 255, 255, 0.09);border-radius:12px;
-  padding:12px 14px;margin-bottom:16px;
+  width:100%;font-family:inherit;font-size:.95rem;color:var(--ink);
+  background:rgba(15, 23, 42, 0.65);border:1px solid rgba(255, 255, 255, 0.09);border-radius:12px;
+  padding:12px 14px;
   transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
 input:focus{outline:none;border-color:var(--accent);background:rgba(15, 23, 42, 0.9);box-shadow:0 0 0 3px var(--accent-glow)}
-button{
+.customer-mode input:focus{border-color:var(--cust-accent);box-shadow:0 0 0 3px var(--cust-glow)}
+
+button.btn-submit{
   width:100%;appearance:none;border:1px solid rgba(255, 255, 255, 0.15);cursor:pointer;
-  font-family:inherit;font-size:1rem;font-weight:600;
-  background:var(--accent-grad);color:var(--accent-ink);
-  padding:13px;border-radius:12px;margin-top:6px;
+  font-family:inherit;font-size:.96rem;font-weight:600;
+  color:#ffffff;
+  padding:13px;border-radius:12px;margin-top:4px;
   box-shadow:0 4px 14px rgba(37, 99, 235, 0.35);
   transition:transform .12s ease, filter .18s ease, box-shadow .18s ease;
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
 }
-button:hover{filter:brightness(1.09);box-shadow:0 6px 20px rgba(37, 99, 235, 0.45)}
-button:active{transform:scale(.98);box-shadow:none}
-button:disabled{opacity:.5;cursor:not-allowed}
+button.btn-submit.staff{
+  background:var(--accent-grad);
+}
+button.btn-submit.customer{
+  background:var(--cust-grad);
+  box-shadow:0 4px 14px rgba(2, 132, 199, 0.35);
+}
+button.btn-submit:hover{filter:brightness(1.09);box-shadow:0 6px 20px rgba(37, 99, 235, 0.45)}
+button.btn-submit:active{transform:scale(.98);box-shadow:none}
+button.btn-submit:disabled{opacity:.5;cursor:not-allowed}
+
+/* Instant Customer Button */
+.instant-box{
+  background:rgba(14, 165, 233, 0.08);
+  border:1px solid rgba(56, 189, 248, 0.25);
+  border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;
+}
+.instant-box p{margin:0 0 10px;font-size:0.8rem;color:#bae6fd;line-height:1.45}
+.btn-instant{
+  width:100%;appearance:none;border:0;cursor:pointer;
+  font-family:inherit;font-size:1rem;font-weight:700;
+  background:linear-gradient(135deg, #0284c7, #38bdf8);
+  color:#ffffff;padding:14px;border-radius:12px;
+  box-shadow:0 4px 16px rgba(2, 132, 199, 0.4);
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:all 0.18s var(--ease);
+}
+.btn-instant:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 8px 24px rgba(2, 132, 199, 0.55)}
+.btn-instant:active{transform:scale(.98)}
+
+/* Divider */
+.divider{
+  display:flex;align-items:center;gap:10px;margin:16px 0;
+  color:var(--muted);font-size:0.75rem;
+}
+.divider::before, .divider::after{content:"";flex:1;height:1px;background:rgba(255,255,255,0.08)}
+
+/* Quick demo fill chips */
+.demo-helper{
+  margin-top:14px;text-align:center;
+}
+.chip-demo{
+  appearance:none;background:rgba(255,255,255,0.04);
+  border:1px dashed rgba(255,255,255,0.15);color:var(--muted);
+  padding:6px 12px;border-radius:99px;font-size:0.74rem;font-family:inherit;
+  cursor:pointer;transition:all 0.15s ease;
+  display:inline-flex;align-items:center;gap:5px;
+}
+.chip-demo:hover{border-color:var(--accent);color:#fff;background:rgba(59, 130, 246, 0.1)}
+
 .msg{
-  min-height:20px;margin:14px 0 0;font-size:.85rem;text-align:center;color:var(--danger);
+  min-height:22px;margin:12px 0 0;font-size:.85rem;text-align:center;color:var(--danger);
+  line-height:1.4;
 }
-.foot{margin:22px 0 0;text-align:center;font-size:.74rem;color:var(--muted);line-height:1.6}
+.msg.ok{color:var(--ok)}
+.foot{margin:20px 0 0;text-align:center;font-size:.74rem;color:var(--muted);line-height:1.6}
 .spin{
-  display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.15);
-  border-top-color:var(--accent-2);border-radius:50%;
+  display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.2);
+  border-top-color:#fff;border-radius:50%;
   animation:sp .7s linear infinite;vertical-align:-2px;
 }
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -87,35 +216,151 @@ button:disabled{opacity:.5;cursor:not-allowed}
 </style>
 </head>
 <body>
-<form class="card" id="form" autocomplete="on">
-  <div class="logo" aria-hidden="true">
-    <svg viewBox="0 0 24 24"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H12v16H5.5A1.5 1.5 0 0 1 4 18.5v-13z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H12v16h6.5a1.5 1.5 0 0 0 1.5-1.5v-13z"/></svg>
+
+<div class="login-wrap">
+  <div class="card">
+    
+    <!-- Role Switcher -->
+    <div class="role-tabs" role="tablist">
+      <button type="button" class="role-tab active" id="tab-staff" data-role="staff">
+        <span>🧑‍💼 พนักงานร้าน</span>
+      </button>
+      <button type="button" class="role-tab" id="tab-customer" data-role="customer">
+        <span>🛍️ ลูกค้าทั่วไป</span>
+      </button>
+    </div>
+
+    <!-- ================== 1. ฟอร์มพนักงาน ================== -->
+    <div id="panel-staff">
+      <div class="header-box">
+        <div class="logo staff" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M12 6v6"/><path d="M9 9h6"/></svg>
+        </div>
+        <span class="role-badge staff">🔒 สิทธิ์เต็มระบบหลังร้าน</span>
+        <h1>เข้าสู่ระบบพนักงาน</h1>
+        <p class="sub">จัดการสต็อก · สแกนบาร์โค้ด · กล้อง AI อ่านปก · ชั้นวาง · คำสั่งซื้อ</p>
+      </div>
+
+      <form id="form-staff" autocomplete="on">
+        <div class="field">
+          <label for="u">ชื่อผู้ใช้พนักงาน</label>
+          <input id="u" name="username" autocomplete="username" autocapitalize="none" placeholder="เช่น nuun" required>
+        </div>
+
+        <div class="field">
+          <label for="p">รหัสผ่าน</label>
+          <input id="p" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+        </div>
+
+        <button type="submit" id="btn" class="btn-submit staff">เข้าสู่ระบบพนักงาน →</button>
+      </form>
+
+      <div class="demo-helper">
+        <button type="button" id="btn-fill-staff" class="chip-demo">
+          <span>🔑 ใส่รหัสสาธิตพนักงาน (nuun)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================== 2. ฟอร์มลูกค้า ================== -->
+    <div id="panel-customer" hidden class="customer-mode">
+      <div class="header-box">
+        <div class="logo customer" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        </div>
+        <span class="role-badge customer">✨ ค้นหา & สั่งซื้อหนังสือ</span>
+        <h1>เข้าใช้งานสำหรับลูกค้า</h1>
+        <p class="sub">ค้นหาหนังสือด้วย AI · ถามหาสภาพจริง · ดูรีวิว · สั่งซื้อออนไลน์</p>
+      </div>
+
+      <!-- Quick One-click Login -->
+      <div class="instant-box">
+        <p>สำหรับลูกค้าทั่วไป สามารถเข้าสู่ระบบได้ทันทีโดยไม่ต้องจำรหัสผ่าน</p>
+        <button type="button" id="btn-customer-instant" class="btn-instant">
+          <span>🚀 เข้าถาม-ค้นหาหนังสือทันที (One-Click)</span>
+        </button>
+      </div>
+
+      <div class="divider">หรือ เข้าสู่ระบบด้วยรหัสลูกค้า</div>
+
+      <form id="form-customer" autocomplete="on">
+        <div class="field">
+          <label for="cust-u">ชื่อผู้ใช้ลูกค้า</label>
+          <input id="cust-u" name="username" autocomplete="username" autocapitalize="none" value="customer">
+        </div>
+
+        <div class="field">
+          <label for="cust-p">รหัสผ่านลูกค้า</label>
+          <input id="cust-p" name="password" type="password" autocomplete="current-password" value="ec1f-d92c-6d08">
+        </div>
+
+        <button type="submit" id="btn-cust-submit" class="btn-submit customer">เข้าสู่ระบบด้วยรหัสลูกค้า →</button>
+      </form>
+    </div>
+
+    <p class="msg" id="msg" role="status"></p>
+    <p class="foot" id="foot-note">ระบบร้านหนังสือมือสองอัจฉริยะ (Local AI Demo)</p>
   </div>
-  <h1>ร้านหนังสือมือสอง</h1>
-  <p class="sub">ระบบสต็อก + ชั้นวาง + รับซื้อ</p>
-
-  <label for="u">ชื่อผู้ใช้</label>
-  <input id="u" name="username" autocomplete="username" autocapitalize="none" required>
-
-  <label for="p">รหัสผ่าน</label>
-  <input id="p" name="password" type="password" autocomplete="current-password" required>
-
-  <button type="submit" id="btn">เข้าสู่ระบบ</button>
-  <p class="msg" id="msg" role="status"></p>
-  <p class="foot">ระบบนี้จำกัดเฉพาะผู้ที่ได้รับอนุญาต<br>เพื่อป้องกันการใช้งานโดยบุคคลอื่น</p>
-</form>
+</div>
 
 <script>
   const API = p => new URL('api/' + p, location.href.replace(/[^/]*$/, '')).toString();
-  const form = document.getElementById('form');
+  const tabStaff = document.getElementById('tab-staff');
+  const tabCustomer = document.getElementById('tab-customer');
+  const panelStaff = document.getElementById('panel-staff');
+  const panelCustomer = document.getElementById('panel-customer');
   const msg = document.getElementById('msg');
-  const btn = document.getElementById('btn');
+  const formStaff = document.getElementById('form-staff');
+  const formCustomer = document.getElementById('form-customer');
+  const btnStaff = document.getElementById('btn');
+  const btnCustSubmit = document.getElementById('btn-cust-submit');
+  const btnCustomerInstant = document.getElementById('btn-customer-instant');
+  const btnFillStaff = document.getElementById('btn-fill-staff');
 
-  form.addEventListener('submit', async e => {
+  function setRole(role, updateUrl = true) {
+    const isStaff = role === 'staff';
+    tabStaff.classList.toggle('active', isStaff);
+    tabCustomer.classList.toggle('active', !isStaff);
+    panelStaff.hidden = !isStaff;
+    panelCustomer.hidden = isStaff;
+    msg.textContent = '';
+    msg.className = 'msg';
+
+    if (updateUrl) {
+      const url = new URL(location.href);
+      url.searchParams.set('role', role);
+      history.replaceState(null, '', url.toString());
+    }
+
+    if (isStaff) {
+      setTimeout(() => document.getElementById('u')?.focus(), 50);
+    }
+  }
+
+  tabStaff.addEventListener('click', () => setRole('staff'));
+  tabCustomer.addEventListener('click', () => setRole('customer'));
+
+  // ตรวจจับบทบาทเริ่มต้นจาก URL เช่น ?role=customer หรือ pathname
+  const params = new URLSearchParams(location.search);
+  const path = location.pathname.toLowerCase();
+  if (params.get('role') === 'customer' || path.endsWith('/customer')) {
+    setRole('customer', false);
+  } else {
+    setRole('staff', false);
+  }
+
+  const toHome = () => {
+    let p = location.pathname.replace(/(staff|customer|login)\/?$/, '');
+    if (!p.endsWith('/')) p += '/';
+    location.href = p || './';
+  };
+
+  // ล็อกอินพนักงาน
+  formStaff.addEventListener('submit', async e => {
     e.preventDefault();
-    btn.disabled = true;
-    msg.style.color = '';
-    msg.innerHTML = '<span class="spin"></span> กำลังตรวจสอบ...';
+    btnStaff.disabled = true;
+    msg.className = 'msg';
+    msg.innerHTML = '<span class="spin"></span> กำลังเข้าสู่ระบบพนักงาน...';
     try {
       const r = await fetch(API('login'), {
         method: 'POST',
@@ -127,18 +372,79 @@ button:disabled{opacity:.5;cursor:not-allowed}
       });
       const d = await r.json();
       if (d.ok) {
-        msg.textContent = 'เข้าสู่ระบบสำเร็จ กำลังเปิดระบบ...';
-        location.reload();
+        msg.className = 'msg ok';
+        msg.textContent = 'เข้าสู่ระบบพนักงานสำเร็จ กำลังเปิดระบบ...';
+        toHome();
         return;
       }
       msg.textContent = d.error || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
     } catch (err) {
       msg.textContent = 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง';
     }
-    btn.disabled = false;
+    btnStaff.disabled = false;
   });
 
-  document.getElementById('u').focus();
+  // ปุ่มช่วยกรอกรหัสสาธิตพนักงาน
+  btnFillStaff.addEventListener('click', () => {
+    document.getElementById('u').value = 'nuun';
+    document.getElementById('p').value = '9jay-vxx4-nnqq';
+    formStaff.requestSubmit();
+  });
+
+  // ล็อกอินลูกค้าแบบ One-Click ทันที
+  btnCustomerInstant.addEventListener('click', async () => {
+    btnCustomerInstant.disabled = true;
+    msg.className = 'msg ok';
+    msg.innerHTML = '<span class="spin"></span> กำลังเชื่อมต่อเข้าสู่ระบบลูกค้า...';
+    try {
+      const r = await fetch(API('login'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ quick_customer: true })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        msg.textContent = 'เข้าสู่ระบบสำเร็จ กำลังพาไปค้นหาหนังสือ...';
+        toHome();
+        return;
+      }
+      msg.className = 'msg';
+      msg.textContent = d.error || 'เข้าสู่ระบบลูกค้าไม่สำเร็จ';
+    } catch (err) {
+      msg.className = 'msg';
+      msg.textContent = 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง';
+    }
+    btnCustomerInstant.disabled = false;
+  });
+
+  // ล็อกอินลูกค้าแบบกรอกรหัส
+  formCustomer.addEventListener('submit', async e => {
+    e.preventDefault();
+    btnCustSubmit.disabled = true;
+    msg.className = 'msg';
+    msg.innerHTML = '<span class="spin"></span> กำลังตรวจสอบรหัสลูกค้า...';
+    try {
+      const r = await fetch(API('login'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          username: document.getElementById('cust-u').value,
+          password: document.getElementById('cust-p').value
+        })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        msg.className = 'msg ok';
+        msg.textContent = 'เข้าสู่ระบบลูกค้าสำเร็จ กำลังเปิดระบบ...';
+        toHome();
+        return;
+      }
+      msg.textContent = d.error || 'ชื่อผู้ใช้หรือรหัสผ่านลูกค้าไม่ถูกต้อง';
+    } catch (err) {
+      msg.textContent = 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง';
+    }
+    btnCustSubmit.disabled = false;
+  });
 </script>
 </body>
 </html>

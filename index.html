@@ -1075,6 +1075,12 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   padding: 12px 0 6px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+body.is-customer { padding-bottom: 24px; }
+body.is-customer nav { display: none !important; }
+body.is-customer .chat-inputbar {
+  bottom: 0;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
 .note { font-size: 0.82rem; color: var(--muted); border-left: 2px solid var(--line-active); padding-left: 12px; margin: 16px 0; }
 </style>
 </head>
@@ -1507,14 +1513,49 @@ document.addEventListener('scroll', () => {
 // บัญชีลูกค้าเห็นแค่แท็บแชท ส่วนการกันจริงอยู่ที่เซิร์ฟเวอร์ (ตอบ 403 ทุก endpoint หลังบ้าน)
 // ตรงนี้แค่เก็บของที่ใช้ไม่ได้ให้พ้นตา ไม่ใช่ระบบความปลอดภัย
 get('me').then(me => {
+  const userNameEl = document.querySelector('.user-name');
+  const userChipEl = document.querySelector('.user-chip');
+  if (userNameEl && me.user) {
+    userNameEl.textContent = me.role === 'customer' ? 'ลูกค้า' : me.user;
+  }
+  if (userChipEl) {
+    userChipEl.title = me.role === 'customer'
+      ? 'เข้าสู่ระบบในโหมดลูกค้าทั่วไป'
+      : `เข้าสู่ระบบในชื่อ ${me.user || 'nuun'} (พนักงาน)`;
+  }
+
   if (me.role !== 'customer') return;
-  document.querySelectorAll('nav button').forEach(b => {
-    if (b.dataset.tab !== 'search') b.remove();
-  });
+
+  // ปรับแต่งอินเทอร์เฟซสำหรับลูกค้าโดยเฉพาะ
+  document.body.classList.add('is-customer');
+
+  // นำแท็บหลังบ้านและแถบนำทางด้านล่างออก
+  const navEl = document.querySelector('nav');
+  if (navEl) navEl.remove();
   ['stock', 'stockin', 'buyback', 'orders', 'stats'].forEach(t => {
     const el = $('tab-' + t);
     if (el) el.remove();
   });
+
+  // ปรับแต่งข้อมูลบน Header
+  const badgeLive = document.querySelector('.badge-live');
+  if (badgeLive) {
+    badgeLive.innerHTML = '<span class="live-dot" style="background:#38bdf8;box-shadow:0 0 10px #38bdf8"></span>โหมดลูกค้า · ค้นหา & สั่งซื้อ';
+    badgeLive.style.borderColor = 'rgba(56, 189, 248, 0.35)';
+    badgeLive.style.background = 'rgba(56, 189, 248, 0.12)';
+    badgeLive.style.color = '#7dd3fc';
+  }
+  const brandSub = document.querySelector('.brand p');
+  if (brandSub) {
+    brandSub.textContent = 'ค้นหา สอบถามข้อมูล และสั่งซื้อหนังสือออนไลน์';
+  }
+  const btnLogout = $('btn-logout');
+  if (btnLogout) {
+    btnLogout.title = 'ออกจากระบบ / สลับเข้าโหมดพนักงาน';
+    const span = btnLogout.querySelector('span');
+    if (span) span.textContent = 'สลับเข้าพนักงาน';
+  }
+
   const mp = document.querySelector('.mode-pick');
   if (mp) mp.remove();                      // ไม่ให้สลับไปโหมดพนักงาน
   const h = document.querySelector('#tab-search h2');

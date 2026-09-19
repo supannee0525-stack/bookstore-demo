@@ -2102,12 +2102,12 @@ class Handler(BaseHTTPRequestHandler):
         # เพราะแอปอยู่ใต้ path /bookstore-demo/ ของ nginx — redirect จะพาไปผิดที่)
         user, role = self._session()
         if not user:
-            if path == "/":
+            if path in ("/", "/login", "/staff", "/customer"):
                 return self._send(200, (BASE / "login.html").read_text(encoding="utf-8"),
                                   "text/html; charset=utf-8")
             return self._send(401, {"error": "ต้องเข้าสู่ระบบก่อน", "auth": False})
 
-        if path == "/":
+        if path in ("/", "/login", "/staff", "/customer"):
             return self._send(200, (BASE / "index.html").read_text(encoding="utf-8"),
                               "text/html; charset=utf-8")
         if path == "/api/me":
@@ -2181,11 +2181,16 @@ class Handler(BaseHTTPRequestHandler):
         p = self._read_json()
 
         if path == "/api/login":
+            if p.get("quick_customer"):
+                role = "customer"
+                u = _cfg("CUSTOMER_USER", "customer")
+                return self._send(200, {"ok": True, "role": role, "user": u},
+                                  extra=self._set_cookie(make_token(u, role)))
             u = str(p.get("username") or "")
             pw = str(p.get("password") or "")
             role = verify_login(u, pw)
             if role:
-                return self._send(200, {"ok": True, "role": role},
+                return self._send(200, {"ok": True, "role": role, "user": u.strip() or "user"},
                                   extra=self._set_cookie(
                                       make_token(u.strip() or "user", role)))
             time.sleep(0.7)   # หน่วงเล็กน้อย กันลองสุ่มรหัสรัวๆ
