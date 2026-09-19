@@ -581,6 +581,25 @@ def _qwen_read(images, media_type):
     return txt, r.get("usage", {})
 
 
+def _qwen_extract_fields(combined):
+    """สูตร Local 100% (Mac mini) ขั้นที่ 2: ให้ Qwen 2.5 7B แยกข้อความดิบจาก Typhoon OCR เป็น JSON"""
+    key = _cfg("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError("ไม่พบ OPENROUTER_API_KEY บนเครื่อง")
+    req = urllib.request.Request(
+        OPENROUTER_URL,
+        data=json.dumps({
+            "model": "qwen/qwen-2.5-7b-instruct",
+            "temperature": 0,
+            "max_tokens": 1000,
+            "messages": [{"role": "user", "content": FIELD_PROMPT + combined}],
+        }).encode(),
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+    )
+    r = json.load(urllib.request.urlopen(req, timeout=90))
+    return r["choices"][0]["message"].get("content") or "", r.get("usage", {})
+
+
 def _ocr_one(image_b64, media_type):
     """ขั้นที่ 1 — ให้ Typhoon OCR ถอดข้อความจากภาพเดียว คืน (text, usage)"""
     r = typhoon_post({
@@ -607,16 +626,16 @@ def _ocr_one(image_b64, media_type):
 
 
 def api_ai_read(images, media_type, engine="typhoon"):
-    """อ่านหนังสือจากภาพ แล้วแยกเป็นช่องข้อมูล — เลือกเครื่องอ่านได้ 2 แบบ
+    """อ่านหนังสือจากภาพ แล้วแยกเป็นช่องข้อมูล — เลือกเครื่องอ่านได้
 
     images = [{"label": "ปกหน้า", "image_b64": "..."}, ...] รับได้หลายรูป
     (ปกหน้า/ปกหลัง/หน้าแรก) เพราะข้อมูลกระจายกันอยู่ — เนื้อเรื่องย่อมักอยู่ปกหลัง
     ส่วนปีพิมพ์กับราคามักอยู่หน้าแรก
 
-    engine="typhoon" — 2 ขั้น (OCR ทุกรูป -> รวมข้อความ -> แยกช่อง) เพราะ Typhoon OCR
-                       เป็น OCR ล้วน แยกช่องเองไม่ได้ / รันบนเครื่องตัวเองได้
-    engine="gemini"  — ขั้นเดียว อ่านวรรณยุกต์ไทยแม่นกว่ามาก แต่เป็นคลาวด์ รันเองไม่ได้
-    engine="qwen"    — ขั้นเดียว โมเดลเปิด รันบน Mac ได้ (ยิงผ่าน OpenRouter เพราะเครื่องนี้ไม่มีการ์ดจอ)
+    engine="typhoon-qwen" — สูตร Local 100% บน Mac mini (Typhoon OCR ตา + Qwen 7B สมอง)
+    engine="typhoon"      — 2 ขั้น (OCR ทุกรูป -> รวมข้อความ -> แยกช่องด้วย Typhoon 30B)
+    engine="gemini"       — ขั้นเดียว อ่านวรรณยุกต์ไทยแม่นกว่ามาก แต่เป็นคลาวด์ รันเองไม่ได้
+    engine="qwen"         — ขั้นเดียว โมเดลเปิด รันบน Mac ได้ (ยิงผ่าน OpenRouter เพราะเครื่องนี้ไม่มีการ์ดจอ)
     """
     if not images:
         return {"error": "ไม่มีภาพ"}
@@ -637,6 +656,39 @@ def api_ai_read(images, media_type, engine="typhoon"):
             return _typhoon_local_read(images, media_type)
         except Exception as exc:
             return {"error": f"Typhoon (GPU เช่า) อ่านภาพไม่สำเร็จ: {exc}"}
+
+    if engine == "typhoon-qwen":
+        # สูตร Local 100% (Mac mini) — ขั้น 1: Typhoon OCR อ่านภาพ -> ขั้น 2: Qwen 2.5 7B แยกฟิลด์
+        raw_by_image, in_tok, out_tok = [], 0, 0
+        for i, im in enumerate(images[:3]):
+            b64 = im.get("image_b64") or ""
+            if not b64:
+                continue
+            label = im.get("label") or f"รูปที่ {i + 1}"
+            try:
+                txt, u = _ocr_one(b64, im.get("media_type") or media_type)
+            except Exception as exc:
+                raw_by_image.append({"label": label, "text": "", "error": str(exc)})
+                continue
+            raw_by_image.append({"label": label, "text": txt})
+            in_tok += u.get("prompt_tokens") or 0
+            out_tok += u.get("completion_tokens") or 0
+            if i < len(images) - 1:
+                time.sleep(0.6)
+
+        combined = "\n\n".join(f"[{p['label']}]\n{p['text']}"
+                               for p in raw_by_image if p.get("text"))
+        if not combined.strip():
+            return {"error": "OCR อ่านข้อความจากภาพไม่ได้ — ลองถ่ายใหม่ให้ชัดขึ้น",
+                    "raw_by_image": raw_by_image}
+
+        try:
+            txt_out, u2 = _qwen_extract_fields(combined)
+        except Exception as exc:
+            return {"error": f"Qwen 7B แยกช่องข้อมูลไม่สำเร็จ: {exc}",
+                    "raw_text": combined, "raw_by_image": raw_by_image}
+
+        return _finish_read(txt_out, combined, raw_by_image, in_tok, out_tok, u2)
 
     # ขั้นที่ 1 — OCR ทุกรูป
     raw_by_image, in_tok, out_tok = [], 0, 0
@@ -1081,6 +1133,23 @@ def _tool_search_books(query, mode="staff"):
 
 
 def _chat_completion(messages, tools=None, force_tool=None):
+    engine = _cfg("CHAT_ENGINE", "typhoon").lower()
+    if engine in ("qwen", "deepseek"):
+        key = _cfg("OPENROUTER_API_KEY")
+        if key:
+            model = "qwen/qwen-2.5-7b-instruct" if engine == "qwen" else "deepseek/deepseek-v4.1-flash"
+            req = urllib.request.Request(
+                OPENROUTER_URL,
+                data=json.dumps({
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.3,
+                    "max_tokens": 800,
+                }).encode(),
+                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+            )
+            return json.load(urllib.request.urlopen(req, timeout=90))
+
     body = {"model": CHAT_MODEL, "messages": messages, "temperature": 0.4}
     if tools:
         body["tools"] = tools
@@ -1115,6 +1184,28 @@ def _extract_query(user_msg, history=None):
     convo = "\n".join(f"- {x[:200]}" for x in prev)
     prompt = KEYWORD_PROMPT + (f"ลูกค้าถามอะไรมาก่อนหน้านี้:\n{convo}\n\n" if convo else "") \
         + f"ข้อความล่าสุดของลูกค้า: {user_msg}"
+
+    engine = _cfg("CHAT_ENGINE", "typhoon").lower()
+    if engine in ("qwen", "deepseek"):
+        key = _cfg("OPENROUTER_API_KEY")
+        if key:
+            model = "qwen/qwen-2.5-7b-instruct" if engine == "qwen" else "deepseek/deepseek-v4.1-flash"
+            try:
+                req = urllib.request.Request(
+                    OPENROUTER_URL,
+                    data=json.dumps({
+                        "model": model, "temperature": 0, "max_tokens": 40,
+                        "messages": [{"role": "user", "content": prompt}],
+                    }).encode(),
+                    headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                )
+                r = json.load(urllib.request.urlopen(req, timeout=60))
+                kw = (r["choices"][0]["message"].get("content") or "").strip()
+                kw = kw.splitlines()[0].strip(' "\'') if kw else ""
+                return kw or user_msg
+            except Exception:
+                return user_msg
+
     try:
         r = typhoon_post({
             "model": TEXT_MODEL, "temperature": 0, "max_tokens": 40,

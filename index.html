@@ -676,10 +676,10 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
       </div>
       <div class="engine-pick" role="radiogroup" aria-label="เลือกเครื่องอ่าน">
         <label class="eng">
-          <input type="radio" name="engine" value="typhoon" checked>
+          <input type="radio" name="engine" value="typhoon-qwen" checked>
           <span class="eng-box">
-            <b>Typhoon</b>
-            <em>รันบนเครื่องเองได้ · วรรณยุกต์ไทยเพี้ยน</em>
+            <b>สูตร Local 100% (Mac mini)</b>
+            <em>Typhoon OCR (ตา) + Qwen 7B (สมอง) · ค่า AI 0฿</em>
           </span>
         </label>
         <label class="eng">
@@ -687,6 +687,13 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
           <span class="eng-box">
             <b>Gemini</b>
             <em>อ่านไทยแม่นกว่ามาก · ใช้คลาวด์</em>
+          </span>
+        </label>
+        <label class="eng">
+          <input type="radio" name="engine" value="typhoon">
+          <span class="eng-box">
+            <b>Typhoon</b>
+            <em>รันบนเครื่องเองได้ · วรรณยุกต์ไทยเพี้ยน</em>
           </span>
         </label>
         <label class="eng">
@@ -1772,6 +1779,7 @@ const CMP_FIELDS = [
 ];
 
 const ENGINES = [
+  {id: 'typhoon-qwen', name: 'สูตร Local (Mac mini)', note: 'Typhoon+Qwen 7B'},
   {id: 'typhoon', name: 'Typhoon', note: 'รันเองได้'},
   {id: 'gemini',  name: 'Gemini',  note: 'คลาวด์'},
   {id: 'qwen',    name: 'Qwen 27B', note: 'ลง Mac ได้'},
