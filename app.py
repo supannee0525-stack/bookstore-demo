@@ -536,9 +536,19 @@ def _typhoon_local_read(images, media_type):
             continue
         label = im.get("label") or f"รูปที่ {i + 1}"
         try:
-            r = _ollama_post("/api/generate", {
-                "model": OLLAMA_OCR_MODEL, "prompt": OCR_PROMPT,
-                "images": [b64], "stream": False})
+            try:
+                r = _ollama_post("/api/generate", {
+                    "model": OLLAMA_OCR_MODEL, "prompt": OCR_PROMPT,
+                    "images": [b64], "stream": False,
+                    "options": {"temperature": 0.1, "top_p": 0.6}})   # ค่าเดียวกับตอนเรียก Typhoon คลาวด์
+            except Exception:
+                # Ollama ยกเลิกงานเมื่อโมเดลวนซ้ำ (token repeat limit) แล้วทุกคำขอถัดไปพังต่อเนื่องจนกว่าจะโหลดโมเดลใหม่
+                # (วัดได้จริงบน GPU เช่า) จึงปล่อยโมเดลออกจากหน่วยความจำแล้วลองใหม่ 1 ครั้ง
+                _ollama_post("/api/generate", {"model": OLLAMA_OCR_MODEL, "keep_alive": 0}, timeout=60)
+                r = _ollama_post("/api/generate", {
+                    "model": OLLAMA_OCR_MODEL, "prompt": OCR_PROMPT,
+                    "images": [b64], "stream": False,
+                    "options": {"temperature": 0.1, "top_p": 0.6}})   # ค่าเดียวกับตอนเรียก Typhoon คลาวด์
         except Exception as exc:
             raw_by_image.append({"label": label, "text": "", "error": str(exc)})
             continue
@@ -555,7 +565,7 @@ def _typhoon_local_read(images, media_type):
     try:
         r2 = _ollama_post("/api/generate",
                           {"model": OLLAMA_FIELD_MODEL, "prompt": FIELD_PROMPT + combined,
-                           "stream": False}, timeout=240)
+                           "stream": False, "options": {"temperature": 0}}, timeout=240)
     except Exception as exc:
         return {"error": f"แยกช่องข้อมูลไม่สำเร็จ: {exc}",
                 "raw_text": combined, "raw_by_image": raw_by_image}
