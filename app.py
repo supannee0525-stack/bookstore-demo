@@ -647,6 +647,17 @@ def _ocr_one(image_b64, media_type):
     return txt, r.get("usage", {})
 
 
+def _index_html():
+    """หน้าเว็บหลัก — ตั้งเครื่องอ่านปกที่เลือกไว้ให้จาก DEFAULT_ENGINE ใน .env
+    (ร้านที่รัน Local ล้วนตั้ง DEFAULT_ENGINE=typhoon-local ไม่ต้องให้พนักงานเลือกเองทุกครั้ง)"""
+    html = (BASE / "index.html").read_text(encoding="utf-8")
+    want = _cfg("DEFAULT_ENGINE", "typhoon-qwen")
+    if want not in ("typhoon-qwen", "typhoon", "gemini", "qwen", "typhoon-local"):
+        want = "typhoon-qwen"
+    html = html.replace('name="engine" value="typhoon-qwen" checked>', 'name="engine" value="typhoon-qwen">')
+    return html.replace(f'name="engine" value="{want}">', f'name="engine" value="{want}" checked>', 1)
+
+
 def api_ai_read(images, media_type, engine="typhoon"):
     """อ่านหนังสือจากภาพ แล้วแยกเป็นช่องข้อมูล — เลือกเครื่องอ่านได้
 
@@ -654,7 +665,7 @@ def api_ai_read(images, media_type, engine="typhoon"):
     (ปกหน้า/ปกหลัง/หน้าแรก) เพราะข้อมูลกระจายกันอยู่ — เนื้อเรื่องย่อมักอยู่ปกหลัง
     ส่วนปีพิมพ์กับราคามักอยู่หน้าแรก
 
-    engine="typhoon-qwen" — สูตร Local 100% บน Mac mini (Typhoon OCR ตา + Qwen 7B สมอง)
+    engine="typhoon-qwen" — สูตร Typhoon OCR (ตา) + Qwen 7B (สมอง) ในเดโมเรียกผ่านคลาวด์ ถ้ารันเองทั้งหมดใช้ engine="typhoon-local" ชี้ OLLAMA_URL
     engine="typhoon"      — 2 ขั้น (OCR ทุกรูป -> รวมข้อความ -> แยกช่องด้วย Typhoon 30B)
     engine="gemini"       — ขั้นเดียว อ่านวรรณยุกต์ไทยแม่นกว่ามาก แต่เป็นคลาวด์ รันเองไม่ได้
     engine="qwen"         — ขั้นเดียว โมเดลเปิด รันบน Mac ได้ (ยิงผ่าน OpenRouter เพราะเครื่องนี้ไม่มีการ์ดจอ)
@@ -2140,8 +2151,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, {"error": "ต้องเข้าสู่ระบบก่อน", "auth": False})
 
         if path in ("/", "/login", "/staff", "/customer"):
-            return self._send(200, (BASE / "index.html").read_text(encoding="utf-8"),
-                              "text/html; charset=utf-8")
+            return self._send(200, _index_html(), "text/html; charset=utf-8")
         if path == "/api/me":
             return self._send(200, {"user": user, "role": role})
         if path == "/zxing.min.js":
@@ -2268,7 +2278,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(images, list):
                 return self._send(400, {"error": "รูปแบบข้อมูลภาพไม่ถูกต้อง"})
             eng = p.get("engine")
-            eng = eng if eng in ("gemini", "qwen", "typhoon-local") else "typhoon"
+            eng = eng if eng in ("gemini", "qwen", "typhoon-local", "typhoon-qwen") else "typhoon"
             t0 = time.time()
             res = api_ai_read(images, mt, eng)
             elapsed_ms = round((time.time() - t0) * 1000)
