@@ -292,7 +292,7 @@ def init_db():
                  " AND NOT EXISTS (SELECT 1 FROM title_images ti WHERE ti.title_id = t.id)",
                  (now(),))
     conn.commit()
-    if fresh:
+    if fresh and _cfg("SEED_DEMO", "1") != "0":   # ร้านจริงตั้ง SEED_DEMO=0 ใน .env จะได้เริ่มจากฐานข้อมูลว่าง
         for isbn, title, author, pub, year, syn, cover, copies in SEED:
             cur = conn.execute(
                 "INSERT INTO titles(isbn,title,author,publisher,year,synopsis,cover_price,source)"
@@ -490,10 +490,32 @@ OLLAMA_OCR_MODEL = "scb10x/typhoon-ocr1.5-3b"
 OLLAMA_FIELD_MODEL = _cfg("OLLAMA_FIELD_MODEL", "scb10x/typhoon2.1-gemma3-12b")
 
 
-def _ollama_post(path, body, timeout=180):
-    url = _cfg("RUNPOD_OLLAMA_URL")
+OLLAMA_CHAT_MODEL = _cfg("OLLAMA_CHAT_MODEL", "qwen2.5:7b")
+
+
+def _ollama_url():
+    # OLLAMA_URL = Ollama บนเครื่องร้านเอง (เช่น Mac mini) / RUNPOD_OLLAMA_URL = GPU เช่าชั่วคราว
+    return _cfg("OLLAMA_URL") or _cfg("RUNPOD_OLLAMA_URL")
+
+
+def _ollama_chat(messages, temperature, max_tokens, timeout=180):
+    """แชทผ่าน Ollama ในเครื่อง — ใช้ endpoint แบบ OpenAI ของ Ollama ผลลัพธ์จึงหน้าตาเดียวกับ Typhoon/OpenRouter"""
+    url = _ollama_url()
     if not url:
-        raise RuntimeError("ไม่พบ RUNPOD_OLLAMA_URL — ต้องเปิด GPU เช่าไว้ก่อน (URL เปลี่ยนทุกครั้งที่เปิด pod ใหม่)")
+        raise RuntimeError("CHAT_ENGINE=ollama แต่ไม่พบ OLLAMA_URL ใน .env")
+    req = urllib.request.Request(
+        url.rstrip("/") + "/v1/chat/completions",
+        data=json.dumps({"model": OLLAMA_CHAT_MODEL, "messages": messages,
+                         "temperature": temperature, "max_tokens": max_tokens,
+                         "stream": False}).encode(),
+        headers={"Content-Type": "application/json"})
+    return json.load(urllib.request.urlopen(req, timeout=timeout))
+
+
+def _ollama_post(path, body, timeout=180):
+    url = _ollama_url()
+    if not url:
+        raise RuntimeError("ไม่พบ OLLAMA_URL ใน .env (หรือ RUNPOD_OLLAMA_URL ถ้าใช้ GPU เช่า — URL เปลี่ยนทุกครั้งที่เปิด pod ใหม่)")
     req = urllib.request.Request(
         url.rstrip("/") + path, data=json.dumps(body).encode(),
         # Cloudflare (หน้าโปรกซีของ RunPod) บล็อก User-Agent เริ่มต้นของ Python ด้วย 403
@@ -1134,6 +1156,8 @@ def _tool_search_books(query, mode="staff"):
 
 def _chat_completion(messages, tools=None, force_tool=None):
     engine = _cfg("CHAT_ENGINE", "typhoon").lower()
+    if engine == "ollama":
+        return _ollama_chat(messages, 0.3, 800)
     if engine in ("qwen", "deepseek"):
         key = _cfg("OPENROUTER_API_KEY")
         if key:
@@ -1186,6 +1210,14 @@ def _extract_query(user_msg, history=None):
         + f"ข้อความล่าสุดของลูกค้า: {user_msg}"
 
     engine = _cfg("CHAT_ENGINE", "typhoon").lower()
+    if engine == "ollama":
+        try:
+            r = _ollama_chat([{"role": "user", "content": prompt}], 0, 40, timeout=60)
+            kw = (r["choices"][0]["message"].get("content") or "").strip()
+            kw = kw.splitlines()[0].strip(' "\'') if kw else ""
+            return kw or user_msg
+        except Exception:
+            return user_msg
     if engine in ("qwen", "deepseek"):
         key = _cfg("OPENROUTER_API_KEY")
         if key:
