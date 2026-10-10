@@ -13,6 +13,8 @@ import re
 import secrets
 import sqlite3
 import subprocess
+import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -2092,6 +2094,116 @@ def api_buyback_accept(p):
 
 # ---------------------------------------------------------------- http
 
+# ---------------------------------------------------------------- Messenger (เพจเฟซบุ๊ก)
+# ลูกค้าทักแชทเพจ -> Meta ยิง webhook มาที่นี่ -> ใช้ api_chat โหมดลูกค้า (ค้นสต็อกจริงก่อนตอบ) -> ส่งคำตอบกลับทาง Send API
+# ตั้งค่าใน .env: FB_VERIFY_TOKEN, FB_APP_SECRET, FB_PAGE_TOKEN (ตัวเลือก FB_SHOP_URL, FB_GRAPH_URL)
+FB_GRAPH_DEFAULT = "https://graph.facebook.com/v21.0"
+FB_MSG_LIMIT = 20            # ข้อความต่อชั่วโมงต่อผู้ใช้ กันคนยิงรัวๆ กิน AI
+_fb_lock = threading.Lock()
+_fb_seen = {}                # mid -> เวลา (Meta ส่งซ้ำได้ ต้องกันตอบซ้ำ)
+_fb_hist = {}                # sender_id -> [{"role","content"}]
+_fb_times = {}               # sender_id -> [เวลาที่ส่งข้อความ]
+FB_GREETING = ("สวัสดีครับ ยินดีต้อนรับสู่ร้านหนังสือมือสอง ถามหาหนังสือได้เลยครับ "
+               "พิมพ์ชื่อเรื่อง ผู้เขียน หรือแนวที่สนใจ ผมค้นจากสต็อกจริงให้")
+FB_ERROR = "ขอโทษครับ ตอนนี้ระบบตอบอัตโนมัติขัดข้องชั่วคราว รบกวนทักใหม่อีกครั้งหรือรอพนักงานตอบนะครับ"
+
+
+def fb_valid_signature(raw, header, secret):
+    if not secret or not header or not header.startswith("sha256="):
+        return False
+    exp = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(header[7:], exp)
+
+
+def fb_graph_post(path, body):
+    token = _cfg("FB_PAGE_TOKEN")
+    if not token:
+        raise RuntimeError("ไม่พบ FB_PAGE_TOKEN ใน .env")
+    req = urllib.request.Request(
+        _cfg("FB_GRAPH_URL", FB_GRAPH_DEFAULT).rstrip("/") + path,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+    return json.load(urllib.request.urlopen(req, timeout=20))
+
+
+def fb_send(psid, text):
+    return fb_graph_post("/me/messages", {"recipient": {"id": psid}, "messaging_type": "RESPONSE",
+                                          "message": {"text": text[:1900]}})
+
+
+def fb_format_reply(res):
+    """คำตอบ AI + รายการหนังสือสั้นๆ (แชทเพจไม่มีการ์ดแบบหน้าเว็บ) — โหมดลูกค้า ไม่มีชั้นวาง/ต้นทุนอยู่แล้ว"""
+    reply = (res.get("reply") or "").strip()
+    if reply.startswith("ขอโทษครับ ระบบขัดข้อง"):
+        return FB_ERROR          # ไม่ส่งข้อความข้อผิดพลาดดิบ (อาจมีรายละเอียดภายใน) ให้ลูกค้า
+    lines = [reply] if reply else []
+    for b in (res.get("books") or [])[:3]:
+        copies = b.get("copies") or []
+        if not copies:
+            continue
+        opts = " / ".join(f"เกรด {c['grade']} {c['price']:g} บาท" for c in copies[:3])
+        who = f" ({b['author']})" if b.get("author") else ""
+        lines.append(f"• {b['title']}{who} — {opts}")
+    url = _cfg("FB_SHOP_URL")
+    if res.get("books") and url:
+        lines.append("ดูรูปและสั่งซื้อได้ที่ " + url)
+    return "\n".join(lines) if lines else FB_ERROR
+
+
+def fb_handle_event(ev):
+    """ประมวลผลข้อความ 1 รายการ (รันใน thread แยก เพราะ Meta ต้องการคำตอบรับภายใน 5 วินาที แต่ AI ช้ากว่านั้น)"""
+    try:
+        psid = (ev.get("sender") or {}).get("id")
+        msg = ev.get("message") or {}
+        if not psid or msg.get("is_echo"):
+            return
+        text = (msg.get("text") or "").strip()
+        if (ev.get("postback") or {}).get("payload") == "GET_STARTED":
+            fb_send(psid, FB_GREETING)
+            return
+        if not msg:
+            return
+        mid, now = msg.get("mid"), time.time()
+        with _fb_lock:
+            if mid and mid in _fb_seen:
+                return
+            if mid:
+                _fb_seen[mid] = now
+            for k in [k for k, t in _fb_seen.items() if now - t > 3600]:
+                _fb_seen.pop(k, None)
+            times = [t for t in _fb_times.get(psid, []) if now - t < 3600]
+            limited = len(times) >= FB_MSG_LIMIT
+            times.append(now)
+            _fb_times[psid] = times
+            hist = _fb_hist.setdefault(psid, [])
+        if limited:
+            fb_send(psid, "ขอโทษครับ ข้อความเยอะเกินไปในชั่วโมงนี้ รบกวนรอพนักงานตอบหรือลองใหม่ภายหลังนะครับ")
+            return
+        if not text:
+            fb_send(psid, "ตอนนี้ตอบได้เฉพาะข้อความตัวอักษรครับ พิมพ์ชื่อหนังสือที่สนใจได้เลย")
+            return
+        try:
+            fb_graph_post("/me/messages", {"recipient": {"id": psid}, "sender_action": "typing_on"})
+        except Exception:
+            pass
+        with _fb_lock:
+            hist.append({"role": "user", "content": text[:500]})
+            del hist[:-6]
+            convo = list(hist)
+        reply = fb_format_reply(api_chat(convo, "customer"))
+        with _fb_lock:
+            hist.append({"role": "assistant", "content": reply[:500]})
+            del hist[:-6]
+        fb_send(psid, reply)
+    except Exception as exc:
+        print("messenger error:", exc, file=sys.stderr, flush=True)
+        try:
+            if (ev.get("sender") or {}).get("id"):
+                fb_send(ev["sender"]["id"], FB_ERROR)
+        except Exception:
+            pass
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "BookshopDemo/1.0"
@@ -2150,6 +2262,13 @@ class Handler(BaseHTTPRequestHandler):
         if "?" in self.path:
             from urllib.parse import parse_qs, unquote
             query = {k: unquote(v[0]) for k, v in parse_qs(self.path.split("?", 1)[1]).items()}
+
+        if path == "/webhook/messenger":      # Meta ยืนยัน webhook (ไม่ต้องล็อกอิน แต่ต้องมี verify token)
+            vt = _cfg("FB_VERIFY_TOKEN")
+            if vt and query.get("hub.mode") == "subscribe" and hmac.compare_digest(
+                    query.get("hub.verify_token", "").encode(), vt.encode()):
+                return self._send(200, query.get("hub.challenge", ""), "text/plain; charset=utf-8")
+            return self._send(403, {"error": "forbidden"})
 
         # ยังไม่ล็อกอิน: หน้าแรกส่งหน้าล็อกอินให้ (URL เดิม ไม่ต้อง redirect
         # เพราะแอปอยู่ใต้ path /bookstore-demo/ ของ nginx — redirect จะพาไปผิดที่)
@@ -2230,6 +2349,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0].rstrip("/") or "/"
+        if path == "/webhook/messenger":      # ต้องอ่านตัวข้อความดิบเพื่อตรวจลายเซ็น จึงทำก่อน _read_json
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if not fb_valid_signature(raw, self.headers.get("X-Hub-Signature-256"), _cfg("FB_APP_SECRET")):
+                return self._send(403, {"error": "bad signature"})
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                return self._send(400, {"error": "bad json"})
+            if data.get("object") == "page":
+                for entry in data.get("entry") or []:
+                    for ev in entry.get("messaging") or []:
+                        threading.Thread(target=fb_handle_event, args=(ev,), daemon=True).start()
+            return self._send(200, "EVENT_RECEIVED", "text/plain; charset=utf-8")
         p = self._read_json()
 
         if path == "/api/login":
