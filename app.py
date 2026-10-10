@@ -1017,6 +1017,8 @@ def _compact_titles(titles, mode="staff"):
             "copies": [{"สภาพ": GRADE_LABEL.get(c["grade"], c["grade"]), "ราคา": c["price"]}
                        for c in t["copies"] if c["status"] == "in_stock"][:5],
         } for t in titles]
+        # เล่มที่ติดจอง/ขายหมดไม่มีการ์ดให้ลูกค้า ถ้าปล่อยไว้โมเดลจะนับรวม ("มี 4 เล่ม" แต่โชว์ 3)
+        compact = [b for b in compact if b["copies"]]
     else:
         compact = [{
             "title": t["title"], "author": t["author"],
@@ -1352,7 +1354,7 @@ def _review_url(t):
     return "https://www.google.com/search?q=" + urllib.parse.quote(q)
 
 
-def api_chat(history, mode="staff"):
+def api_chat(history, mode="staff", channel=None):
     """history = [{role:'user'|'assistant', content:str}, ...] จบด้วยข้อความล่าสุดของลูกค้า
 
     ทำ 3 ขั้นแบบกำหนดแน่นอน (ไม่พึ่ง function calling): สกัดคำค้น -> ค้นฐานข้อมูลด้วยโค้ด -> ให้โมเดลเรียบเรียงคำตอบ
@@ -1450,6 +1452,9 @@ def api_chat(history, mode="staff"):
         "content": ("ผลค้นจากฐานข้อมูลสต็อกจริง (ใช้ข้อมูลนี้เท่านั้นในการตอบ ห้ามเพิ่มเล่มที่ไม่อยู่ในนี้):\n"
                     + json.dumps(compact, ensure_ascii=False)),
     })
+    # แชทเพจไม่มีการ์ด/ปุ่ม — ทดสอบจริงแล้วโมเดลบอกลูกค้าให้ "กดปุ่มที่การ์ด" ซึ่งไม่มีอยู่
+    if channel == "messenger":
+        convo.append({"role": "system", "content": FB_CHANNEL_NOTE})
 
     # โหมดลูกค้าไม่มีการ์ด จึงแนบลิงก์รีวิวเป็นลิงก์ในแชท และตัดสินด้วยโค้ด ไม่ให้โมเดลแต่ง URL เอง
     links = []
@@ -2106,6 +2111,12 @@ _fb_times = {}               # sender_id -> [เวลาที่ส่งข�
 FB_GREETING = ("สวัสดีครับ ยินดีต้อนรับสู่ร้านหนังสือมือสอง ถามหาหนังสือได้เลยครับ "
                "พิมพ์ชื่อเรื่อง ผู้เขียน หรือแนวที่สนใจ ผมค้นจากสต็อกจริงให้")
 FB_ERROR = "ขอโทษครับ ตอนนี้ระบบตอบอัตโนมัติขัดข้องชั่วคราว รบกวนทักใหม่อีกครั้งหรือรอพนักงานตอบนะครับ"
+FB_LIST_MAX = 5              # จำนวนเล่มที่ไล่ชื่อท้ายข้อความ ที่เหลือบอกเป็นจำนวน
+FB_CHANNEL_NOTE = (
+    "ช่องทางนี้คือแชทเพจเฟซบุ๊ก ไม่มีการ์ดและไม่มีปุ่มใดๆ ห้ามพูดถึงการ์ดหรือปุ่ม "
+    "ระบบจะต่อท้ายรายชื่อหนังสือ (ชื่อ ผู้เขียน เกรด ราคา) ใต้ข้อความให้เอง จึงไม่ต้องบอกราคาหรือเกรดซ้ำ "
+    "ถ้าลูกค้าถามว่าซื้อ/สั่งยังไง ให้บอกว่าพิมพ์ชื่อเล่มที่ต้องการ พร้อมชื่อ เบอร์โทร และที่อยู่จัดส่งไว้ในแชทนี้ได้เลย "
+    "แล้วพนักงานจะติดต่อกลับเรื่องการชำระเงินและจัดส่ง")
 
 
 def fb_valid_signature(raw, header, secret):
@@ -2137,13 +2148,13 @@ def fb_format_reply(res):
     if reply.startswith("ขอโทษครับ ระบบขัดข้อง"):
         return FB_ERROR          # ไม่ส่งข้อความข้อผิดพลาดดิบ (อาจมีรายละเอียดภายใน) ให้ลูกค้า
     lines = [reply] if reply else []
-    for b in (res.get("books") or [])[:3]:
-        copies = b.get("copies") or []
-        if not copies:
-            continue
-        opts = " / ".join(f"เกรด {c['grade']} {c['price']:g} บาท" for c in copies[:3])
+    books = [b for b in (res.get("books") or []) if b.get("copies")]
+    for b in books[:FB_LIST_MAX]:
+        opts = " / ".join(f"เกรด {c['grade']} {c['price']:g} บาท" for c in b["copies"][:3])
         who = f" ({b['author']})" if b.get("author") else ""
         lines.append(f"• {b['title']}{who} — {opts}")
+    if len(books) > FB_LIST_MAX:   # ไม่งั้นข้อความบอก "มี 7 เล่ม" แต่ไล่ชื่อแค่ 5 ลูกค้างง
+        lines.append(f"และอีก {len(books) - FB_LIST_MAX} เล่ม พิมพ์ชื่อเรื่องที่สนใจเพิ่มได้เลยครับ")
     url = _cfg("FB_SHOP_URL")
     if res.get("books") and url:
         lines.append("ดูรูปและสั่งซื้อได้ที่ " + url)
@@ -2190,7 +2201,7 @@ def fb_handle_event(ev):
             hist.append({"role": "user", "content": text[:500]})
             del hist[:-6]
             convo = list(hist)
-        reply = fb_format_reply(api_chat(convo, "customer"))
+        reply = fb_format_reply(api_chat(convo, "customer", channel="messenger"))
         with _fb_lock:
             hist.append({"role": "assistant", "content": reply[:500]})
             del hist[:-6]
