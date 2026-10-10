@@ -1282,7 +1282,8 @@ REVIEW_WORDS = ("รีวิว", "review", "เสียงตอบรับ"
 # แทนรูปเดียวที่แนบให้เป็นค่าเริ่มต้นทุกครั้ง
 PHOTO_WORDS = ("รูปเพิ่ม", "รูปอื่น", "รูปทั้งหมด", "ขอดูรูป", "ดูรูป", "ภาพอื่น",
                "ภาพเพิ่ม", "ภาพทั้งหมด", "ปกหลัง", "ข้างในเล่ม", "หน้าในเล่ม",
-               "มีรูปอื่นไหม", "ขอดูภาพ", "ดูสภาพจริง", "ขอดูตำหนิ")
+               "มีรูปอื่นไหม", "ขอดูภาพ", "ดูสภาพจริง", "ขอดูตำหนิ",
+               "ขอรูป", "มีรูปไหม", "รูปปก", "ขอดูปก")
 
 # คำถามเรื่องหลังร้านที่ลูกค้าไม่ควรได้คำตอบ — ตอบด้วยประโยคสำเร็จ ไม่ต้องถามโมเดลเลย
 # กันด้วยโค้ดเพราะสั่งใน prompt แล้วมันยังหลุด เช่นเผลอบอกว่า "ร้านไม่ได้เก็บข้อมูลชั้นวางไว้"
@@ -2112,6 +2113,7 @@ FB_GREETING = ("สวัสดีครับ ยินดีต้อนรั
                "พิมพ์ชื่อเรื่อง ผู้เขียน หรือแนวที่สนใจ ผมค้นจากสต็อกจริงให้")
 FB_ERROR = "ขอโทษครับ ตอนนี้ระบบตอบอัตโนมัติขัดข้องชั่วคราว รบกวนทักใหม่อีกครั้งหรือรอพนักงานตอบนะครับ"
 FB_LIST_MAX = 5              # จำนวนเล่มที่ไล่ชื่อท้ายข้อความ ที่เหลือบอกเป็นจำนวน
+FB_IMAGE_MAX = 4             # รูปต่อคำขอ ส่งทีละรูป ไม่ให้แชทยาวเกิน
 FB_CHANNEL_NOTE = (
     "ช่องทางนี้คือแชทเพจเฟซบุ๊ก ไม่มีการ์ดและไม่มีปุ่มใดๆ ห้ามพูดถึงการ์ดหรือปุ่ม "
     "ระบบจะต่อท้ายรายชื่อหนังสือ (ชื่อ ผู้เขียน เกรด ราคา) ใต้ข้อความให้เอง จึงไม่ต้องบอกราคาหรือเกรดซ้ำ "
@@ -2140,6 +2142,23 @@ def fb_graph_post(path, body):
 def fb_send(psid, text):
     return fb_graph_post("/me/messages", {"recipient": {"id": psid}, "messaging_type": "RESPONSE",
                                           "message": {"text": text[:1900]}})
+
+
+def fb_send_image(psid, fpath):
+    """อัปโหลดไฟล์รูปไปกับข้อความเลย (multipart) — รูปปกต้องล็อกอินถึงดูได้ และเครื่องร้านอยู่หลัง tunnel
+    จึงไม่ต้องเปิดลิงก์รูปสาธารณะให้ Meta มาดึง"""
+    boundary = "----bookstore" + secrets.token_hex(8)
+    fields = {"recipient": json.dumps({"id": psid}), "messaging_type": "RESPONSE",
+              "message": json.dumps({"attachment": {"type": "image", "payload": {"is_reusable": False}}})}
+    body = b"".join(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+                    for k, v in fields.items())
+    body += (f'--{boundary}\r\nContent-Disposition: form-data; name="filedata"; filename="{fpath.name}"\r\n'
+             "Content-Type: image/jpeg\r\n\r\n").encode() + fpath.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(
+        _cfg("FB_GRAPH_URL", FB_GRAPH_DEFAULT).rstrip("/") + "/me/messages", data=body,
+        headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
+                 "Authorization": "Bearer " + _cfg("FB_PAGE_TOKEN")})
+    return json.load(urllib.request.urlopen(req, timeout=60))
 
 
 def fb_format_reply(res):
@@ -2201,11 +2220,17 @@ def fb_handle_event(ev):
             hist.append({"role": "user", "content": text[:500]})
             del hist[:-6]
             convo = list(hist)
-        reply = fb_format_reply(api_chat(convo, "customer", channel="messenger"))
+        res = api_chat(convo, "customer", channel="messenger")
+        reply = fb_format_reply(res)
         with _fb_lock:
             hist.append({"role": "assistant", "content": reply[:500]})
             del hist[:-6]
         fb_send(psid, reply)
+        # api_chat แนบรูปเฉพาะตอนลูกค้าขอดูรูป และบอกโมเดลไปแล้วว่าส่งรูปให้ — ต้องส่งจริงไม่งั้นพูดไม่ตรง
+        for c in (res.get("covers") or [])[:FB_IMAGE_MAX]:
+            fpath = COVERS_DIR / c["file"]
+            if fpath.is_file():
+                fb_send_image(psid, fpath)
     except Exception as exc:
         print("messenger error:", exc, file=sys.stderr, flush=True)
         try:
