@@ -1418,7 +1418,7 @@ body.is-customer .chat-inputbar {
 <div id="order-box" hidden>
   <div class="sticker-panel edit-panel">
     <h3>สั่งซื้อเล่มนี้</h3>
-    <p class="hint">กรอกที่อยู่จัดส่ง แล้วทางร้านจะติดต่อกลับเรื่องการชำระเงินครับ</p>
+    <p class="hint">กรอกที่อยู่จัดส่ง แล้วทางร้านจะติดต่อกลับเรื่องการชำระเงินค่ะ</p>
     <div id="order-summary"></div>
     <div id="order-form-scroll">
       <div class="fld-row">
@@ -1722,7 +1722,7 @@ $('btn-order-confirm').addEventListener('click', async () => {
   const phone = $('order-phone').value.trim();
   const address = $('order-address').value.trim();
   if (!first || !last || !phone || !address) {
-    err.textContent = 'กรุณากรอกชื่อ นามสกุล เบอร์โทร และที่อยู่จัดส่งให้ครบครับ';
+    err.textContent = 'กรุณากรอกชื่อ นามสกุล เบอร์โทร และที่อยู่จัดส่งให้ครบค่ะ';
     err.hidden = false;
     return;
   }
@@ -1736,10 +1736,10 @@ $('btn-order-confirm').addEventListener('click', async () => {
   closeOrderModal();
   ['order-first', 'order-last', 'order-phone', 'order-address', 'order-note']
     .forEach(id => { $(id).value = ''; });
-  addMsg('bot', `รับคำสั่งซื้อแล้วครับ 🎉<br>"${esc(r.title)}" สภาพ ${esc(r.grade)} ${baht(r.price)}`
+  addMsg('bot', `รับคำสั่งซื้อแล้วค่ะ 🎉<br>"${esc(r.title)}" สภาพ ${esc(r.grade)} ${baht(r.price)}`
     + `<br>เลขที่คำสั่งซื้อ <span class="mono">#${r.order_id}</span>`
     + ` · รหัสเล่ม <span class="mono">${esc(r.code)}</span>`
-    + '<br>สแกน QR ที่ขึ้นให้เพื่อชำระเงินได้เลยครับ');
+    + '<br>สแกน QR ที่ขึ้นให้เพื่อชำระเงินได้เลยค่ะ');
   openPayModal(r.order_id, r.title);
 });
 
@@ -1781,11 +1781,11 @@ async function checkPayStatus() {
   if (s.status !== 'paid') return;
   stopPayPoll();
   $('pay-state').className = 'pay-state paid';
-  $('pay-state').textContent = '✓ ได้รับเงินแล้ว ขอบคุณครับ';
+  $('pay-state').textContent = '✓ ได้รับเงินแล้ว ขอบคุณค่ะ';
   $('pay-demo').hidden = true;
-  addMsg('bot', `ได้รับเงินเรียบร้อยแล้วครับ ✅<br>"${esc(payTitle)}" ${baht(s.amount)}`
+  addMsg('bot', `ได้รับเงินเรียบร้อยแล้วค่ะ ✅<br>"${esc(payTitle)}" ${baht(s.amount)}`
     + `<br>เลขอ้างอิง <span class="mono">${esc(payRef)}</span>`
-    + '<br>ทางร้านจะจัดส่งตามที่อยู่ที่แจ้งไว้ และแจ้งเลขพัสดุให้ทราบครับ');
+    + '<br>ทางร้านจะจัดส่งตามที่อยู่ที่แจ้งไว้ และแจ้งเลขพัสดุให้ทราบค่ะ');
   setTimeout(closePayModal, 1800);
 }
 
@@ -1948,8 +1948,8 @@ document.querySelectorAll('input[name="chatmode"]').forEach(r => {
     $('chat-log').innerHTML = '';
     renderSuggest();
     addMsg('bot', chatMode() === 'customer'
-      ? 'สวัสดีครับ ร้านหนังสือมือสองครับ กำลังหาเล่มไหนอยู่ครับ'
-      : 'โหมดพนักงานครับ ถามชั้นวาง จำนวนคงเหลือ หรือค้นสต็อกได้เลย');
+      ? 'สวัสดีค่ะ ร้านหนังสือมือสองค่ะ กำลังหาเล่มไหนอยู่คะ'
+      : 'โหมดพนักงานค่ะ ถามชั้นวาง จำนวนคงเหลือ หรือค้นสต็อกได้เลย');
   });
 });
 renderSuggest();
@@ -1986,7 +1986,7 @@ async function sendChat(text) {
     }
   } catch (e) {
     thinking.remove();
-    addMsg('bot', 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้งครับ', 'err');
+    addMsg('bot', 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้งค่ะ', 'err');
   }
   $('btn-chat-send').disabled = false;
   $('chat-input').focus();
@@ -1998,7 +1998,7 @@ $('chat-suggestions').addEventListener('click', e => {
   const b = e.target.closest('button[data-q]');
   if (b) sendChat(b.dataset.q);
 });
-addMsg('bot', 'สวัสดีครับ ถามหาหนังสือที่ต้องการได้เลยครับ');
+addMsg('bot', 'สวัสดีค่ะ ถามหาหนังสือที่ต้องการได้เลยค่ะ');
 
 /* ---------- ลงสต็อก ---------- */
 let grade = 'B', foundTitleId = null;
