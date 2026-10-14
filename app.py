@@ -227,7 +227,8 @@ SEED = [
 
 
 def db():
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(DB, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -279,7 +280,8 @@ def init_db():
     # ที่อยู่จัดส่ง + เลขพัสดุ + เวลาแต่ละขั้น — เพิ่มทีหลังตอนเปลี่ยนจาก "จอง" เป็น "สั่งซื้อจริง"
     for col in ("address TEXT", "tracking TEXT", "paid_at TEXT", "shipped_at TEXT",
                 "items_json TEXT", "shipping_cost REAL DEFAULT 0", "subtotal REAL DEFAULT 0",
-                "total_amount REAL DEFAULT 0", "payment_method TEXT DEFAULT 'promptpay'", "order_code TEXT"):
+                "total_amount REAL DEFAULT 0", "payment_method TEXT DEFAULT 'promptpay'", "order_code TEXT",
+                "channel TEXT", "channel_user_id TEXT"):
         if col.split()[0] not in ocols:
             conn.execute(f"ALTER TABLE orders ADD COLUMN {col}")
     # บัญชีลูกค้า (Customer Accounts)
@@ -351,6 +353,8 @@ def init_db():
     if "customer_name" not in have_conv:
         conn.execute("ALTER TABLE omni_conversations ADD COLUMN customer_name TEXT")
         conn.execute("UPDATE omni_conversations SET customer_name = user_name WHERE customer_name IS NULL")
+    if "phone" not in have_conv:
+        conn.execute("ALTER TABLE omni_conversations ADD COLUMN phone TEXT")
     have_msg = {r["name"] for r in conn.execute("PRAGMA table_info(omni_messages)")}
     if "sender" not in have_msg:
         conn.execute("ALTER TABLE omni_messages ADD COLUMN sender TEXT")
@@ -1394,16 +1398,44 @@ def api_order(p):
     if c["status"] != "in_stock":
         conn.close()
         return {"error": "ขออภัยค่ะ เล่มนี้ขายไปแล้ว"}
+    channel = (p.get("channel") or "").strip()
+    channel_user_id = (p.get("channel_user_id") or p.get("sender_id") or "").strip()
+    if not channel_user_id and phone:
+        clean_p = re.sub(r"\D", "", phone)[-9:]
+        conv = conn.execute(
+            "SELECT channel, channel_user_id FROM omni_conversations "
+            "WHERE (phone LIKE ? OR customer_name = ?) ORDER BY id DESC LIMIT 1",
+            (f"%{clean_p}%", name)
+        ).fetchone()
+        if conv:
+            channel = channel or conv["channel"]
+            channel_user_id = conv["channel_user_id"]
+
+    t = conn.execute("SELECT title FROM titles WHERE id=?", (c["title_id"],)).fetchone()
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    subtotal = float(c["price"] or 0)
+    shipping_cost = 0.0 if subtotal >= 500 else 40.0
+    total_amount = subtotal + shipping_cost
+    items_summary = [{
+        "copy_id": copy_id, "title": t["title"], "price": c["price"],
+        "grade": c["grade"], "code": c["code"], "shelf": c["shelf"]
+    }]
+
     conn.execute("UPDATE copies SET status='reserved' WHERE id=?", (copy_id,))
     cur = conn.execute(
-        "INSERT INTO orders(copy_id,customer_name,phone,address,note,status,created_at)"
-        " VALUES(?,?,?,?,?,'pending',?)",
-        (copy_id, name, phone, address, str(p.get("note") or "").strip() or None, now()))
+        "INSERT INTO orders(copy_id,customer_name,phone,address,note,status,created_at,"
+        " items_json,shipping_cost,subtotal,total_amount,payment_method,channel,channel_user_id)"
+        " VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?,?,?)",
+        (copy_id, name, phone, address, str(p.get("note") or "").strip() or None, now(),
+         json.dumps(items_summary, ensure_ascii=False), shipping_cost, subtotal, total_amount,
+         p.get("payment_method") or "promptpay", channel or None, channel_user_id or None))
+    order_id = cur.lastrowid
+    order_code = f"ORD-{date_str}-{order_id:04d}"
+    conn.execute("UPDATE orders SET order_code=? WHERE id=?", (order_code, order_id))
     conn.commit()
-    t = conn.execute("SELECT title FROM titles WHERE id=?", (c["title_id"],)).fetchone()
     conn.close()
-    return {"ok": True, "order_id": cur.lastrowid, "title": t["title"], "name": name,
-            "price": c["price"], "grade": c["grade"], "code": c["code"]}
+    return {"ok": True, "order_id": order_id, "order_code": order_code, "title": t["title"], "name": name,
+            "price": c["price"], "total_amount": total_amount, "grade": c["grade"], "code": c["code"]}
 
 
 def api_orders():
@@ -1487,6 +1519,8 @@ def api_order_update(order_id, action, tracking=""):
                      (order_id,))
     conn.commit()
     conn.close()
+    if action == "pay":
+        notify_order_paid(order_id)
     return {"ok": True, "action": action}
 
 
@@ -2439,6 +2473,7 @@ def api_payment_confirm(ref):
     conn.execute("UPDATE payments SET status='paid', paid_at=? WHERE id=?", (now(), p["id"]))
     conn.commit()
     conn.close()
+    notify_order_paid(p["order_id"])
     return {"ok": True, "status": "paid", "order_id": p["order_id"]}
 
 
@@ -3480,12 +3515,25 @@ def api_cart_checkout(p, user=None):
     date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     first_copy_id = copy_ids[0]
 
+    channel = (p.get("channel") or "").strip()
+    channel_user_id = (p.get("channel_user_id") or p.get("sender_id") or "").strip()
+    if not channel_user_id and phone:
+        clean_p = re.sub(r"\D", "", phone)[-9:]
+        conv = conn.execute(
+            "SELECT channel, channel_user_id FROM omni_conversations "
+            "WHERE (phone LIKE ? OR customer_name = ?) ORDER BY id DESC LIMIT 1",
+            (f"%{clean_p}%", name)
+        ).fetchone()
+        if conv:
+            channel = channel or conv["channel"]
+            channel_user_id = conv["channel_user_id"]
+
     cur = conn.execute(
         "INSERT INTO orders (copy_id, customer_name, phone, address, note, status,"
-        " items_json, shipping_cost, subtotal, total_amount, payment_method, created_at)"
-        " VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+        " items_json, shipping_cost, subtotal, total_amount, payment_method, created_at, channel, channel_user_id)"
+        " VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)",
         (first_copy_id, name, phone, address, note or None, json.dumps(items_summary, ensure_ascii=False),
-         shipping_cost, subtotal, total_amount, payment_method, now())
+         shipping_cost, subtotal, total_amount, payment_method, now(), channel or None, channel_user_id or None)
     )
     order_id = cur.lastrowid
     order_code = f"ORD-{date_str}-{order_id:04d}"
@@ -3883,7 +3931,7 @@ def fb_send_book_details(psid, title_id, copy_id=None):
 
         buttons.append({
             "type": "web_url",
-            "url": f"{base_url}/?buy_copy={target_copy['id']}",
+            "url": f"{base_url}/?buy_copy={target_copy['id']}&channel=facebook&sender_id={psid}",
             "title": f"🛒 สั่งซื้อ ฿{target_copy['price']:g}"[:20]
         })
         # ถ้ามีเกรดอื่นที่ราคาต่างกัน เพิ่มปุ่มให้ลูกค้าเลือกเกรด
@@ -3891,7 +3939,7 @@ def fb_send_book_details(psid, title_id, copy_id=None):
             c2 = in_stock[1]
             buttons.append({
                 "type": "web_url",
-                "url": f"{base_url}/?buy_copy={c2['id']}",
+                "url": f"{base_url}/?buy_copy={c2['id']}&channel=facebook&sender_id={psid}",
                 "title": f"🛒 ซื้อเกรด {c2['grade']} ฿{c2['price']:g}"[:20]
             })
     else:
@@ -3911,7 +3959,7 @@ def fb_send_book_details(psid, title_id, copy_id=None):
             fb_send_button_template(psid, cta_text, buttons)
     except Exception as btn_err:
         print(f"fb_send_button_template fallback: {btn_err}", file=sys.stderr, flush=True)
-        buy_link = f"{base_url}/?buy_copy={in_stock[0]['id']}" if in_stock else f"{base_url}/"
+        buy_link = f"{base_url}/?buy_copy={in_stock[0]['id']}&channel=facebook&sender_id={psid}" if in_stock else f"{base_url}/"
         fb_send(psid, full_text + f"\n\n🛒 สั่งซื้อได้ทันทีที่: {buy_link}")
 
     # 5. บันทึกลงประวัติการสนทนา Omni-Channel
@@ -3960,7 +4008,7 @@ def fb_send_book_cards(psid, books, max_cards=10):
             price = c0.get("price") or 0
             glist = [f"เกรด {c.get('grade', 'A')} ฿{c.get('price', 0):g}" for c in in_stock_copies[:2]]
             subtitle = f"{author_part} • {' / '.join(glist)}".strip(" •")[:80]
-            buy_url = f"{base_url}/?buy_copy={cid}"
+            buy_url = f"{base_url}/?buy_copy={cid}&channel=facebook&sender_id={psid}"
         else:
             cid = None
             price = 0
@@ -4014,6 +4062,138 @@ def fb_send_book_cards(psid, books, max_cards=10):
         }
     }
     return fb_graph_post("/me/messages", payload)
+
+
+def notify_order_paid(order_id):
+    """ส่งข้อความแจ้งเตือนยืนยันการชำระเงินและสรุปคำสั่งซื้อกลับเข้าแชท (เช่น Facebook Messenger) ของลูกค้า"""
+    try:
+        conn = db()
+        o = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+        if not o:
+            conn.close()
+            return
+
+        channel = o["channel"] if "channel" in o.keys() and o["channel"] else None
+        channel_user_id = o["channel_user_id"] if "channel_user_id" in o.keys() and o["channel_user_id"] else None
+
+        # Fallback: ค้นหา channel_user_id จาก omni_conversations
+        if not channel_user_id:
+            phone = (o["phone"] or "").strip()
+            name = (o["customer_name"] or "").strip()
+            if phone or name:
+                clean_p = re.sub(r"\D", "", phone)[-9:] if phone else ""
+                conv = conn.execute(
+                    "SELECT channel, channel_user_id FROM omni_conversations "
+                    "WHERE (phone LIKE ? OR customer_name = ?) ORDER BY id DESC LIMIT 1",
+                    (f"%{clean_p}%" if clean_p else "---", name)
+                ).fetchone()
+                if conv:
+                    channel = channel or conv["channel"]
+                    channel_user_id = conv["channel_user_id"]
+
+        order_code = o["order_code"] or f"ORD-{o['id']:04d}"
+        cust_name = o["customer_name"] or "คุณลูกค้า"
+        phone = o["phone"] or "-"
+        address = o["address"] or "-"
+        total_amount = float(o["total_amount"] or 0)
+
+        # รายการหนังสือ
+        items = []
+        if "items_json" in o.keys() and o["items_json"]:
+            try:
+                items = json.loads(o["items_json"])
+            except Exception:
+                pass
+        if not items and o["copy_id"]:
+            c = conn.execute(
+                "SELECT c.grade, c.price, c.code, t.title FROM copies c JOIN titles t ON t.id = c.title_id WHERE c.id=?",
+                (o["copy_id"],)
+            ).fetchone()
+            if c:
+                items = [{"title": c["title"], "grade": c["grade"], "price": c["price"], "code": c["code"]}]
+                if not total_amount:
+                    total_amount = float(c["price"] or 0)
+
+        item_lines = []
+        for it in items:
+            t = it.get("title") or "หนังสือ"
+            g = it.get("grade")
+            p = it.get("price") or 0
+            g_str = f" (เกรด {g})" if g else ""
+            item_lines.append(f"• {t}{g_str} — ฿{p:g}")
+
+        items_text = "\n".join(item_lines) if item_lines else "• หนังสือ 1 รายการ"
+
+        summary_text = (
+            f"🎉 ยืนยันการชำระเงินเรียบร้อยแล้วค่ะ!\n"
+            f"ขอบคุณ{cust_name}มากนะคะ ทางร้านได้รับยอด ฿{total_amount:g} เรียบร้อยแล้วค่ะ ✨\n\n"
+            f"📋 รหัสคำสั่งซื้อ: {order_code}\n"
+            f"📦 สถานะ: ชำระเงินแล้ว (เตรียมจัดส่ง)\n\n"
+            f"📚 รายการสินค้า:\n{items_text}\n\n"
+            f"📍 ที่อยู่จัดส่ง:\n{address}\n(เบอร์ติดต่อ: {phone})\n\n"
+            f"ร้านกำลังเร่งตรวจสภาพและแพ็กหนังสือให้อย่างดี แล้วจะรีบแจ้งเลขพัสดุให้ทราบนะคะ 💖"
+        )
+
+        base_url = "https://ai4you.click/bookstore-demo"
+        buttons = [
+            {
+                "type": "web_url",
+                "url": f"{base_url}/?tab=tracking&code={order_code}",
+                "title": "📦 ติดตามพัสดุ"
+            },
+            {
+                "type": "web_url",
+                "url": f"{base_url}/order-receipt?id={order_id}",
+                "title": "🖨️ ใบเสร็จรับเงิน"
+            }
+        ]
+
+        # 1. ส่งเข้า Facebook Messenger ถ้าต้นทางคือ Facebook
+        if channel == "facebook" and channel_user_id:
+            try:
+                if len(summary_text) <= 600:
+                    fb_send_button_template(channel_user_id, summary_text, buttons)
+                else:
+                    fb_send(channel_user_id, summary_text)
+                    cta_text = "คุณสามารถกดปุ่มด้านล่างเพื่อติดตามพัสดุหรือดูใบเสร็จรับเงินได้ตลอดเวลาค่ะ 👇"
+                    fb_send_button_template(channel_user_id, cta_text, buttons)
+            except Exception as fb_err:
+                print(f"notify_order_paid fb send error: {fb_err}", file=sys.stderr, flush=True)
+
+        # 2. บันทึกข้อความลง omni_messages
+        try:
+            conv = None
+            if channel_user_id:
+                conv = conn.execute(
+                    "SELECT id FROM omni_conversations WHERE channel=? AND channel_user_id=?",
+                    (channel or "facebook", str(channel_user_id))
+                ).fetchone()
+            if not conv and (o["phone"] or o["customer_name"]):
+                clean_p = re.sub(r"\D", "", o["phone"] or "")[-9:]
+                conv = conn.execute(
+                    "SELECT id FROM omni_conversations WHERE phone LIKE ? OR customer_name = ? ORDER BY id DESC LIMIT 1",
+                    (f"%{clean_p}%" if clean_p else "---", o["customer_name"])
+                ).fetchone()
+
+            if conv:
+                conv_id = conv["id"]
+                now_str = now()
+                conn.execute(
+                    "INSERT INTO omni_messages (conversation_id, sender, sender_type, content, created_at) "
+                    "VALUES (?, 'system', 'system', ?, ?)",
+                    (conv_id, summary_text, now_str)
+                )
+                conn.execute(
+                    "UPDATE omni_conversations SET last_message=?, last_message_at=? WHERE id=?",
+                    (f"ยืนยันชำระเงิน {order_code}"[:200], now_str, conv_id)
+                )
+                conn.commit()
+        except Exception as log_err:
+            print(f"notify_order_paid omni log error: {log_err}", file=sys.stderr, flush=True)
+
+        conn.close()
+    except Exception as e:
+        print(f"notify_order_paid error: {e}", file=sys.stderr, flush=True)
 
 
 def fb_format_reply(res):
@@ -4729,6 +4909,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/cart/checkout":
             user, _ = self._session()
             return self._send(200, api_cart_checkout(p, user))
+        if path == "/api/order":
+            return self._send(200, api_order(p))
         if path == "/api/buyback/estimate":
             return self._send(200, api_buyback_estimate(p))
         if path == "/api/buyback/create":

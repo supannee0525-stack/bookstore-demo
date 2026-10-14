@@ -342,6 +342,10 @@ button.btn-submit:disabled{opacity:.5;cursor:not-allowed}
 
   // ตรวจจับบทบาทเริ่มต้นจาก URL เช่น ?role=customer หรือ pathname
   const params = new URLSearchParams(location.search);
+  if (params.get('channel')) sessionStorage.setItem('bookstore_order_channel', params.get('channel'));
+  if (params.get('sender_id') || params.get('channel_user_id')) {
+    sessionStorage.setItem('bookstore_order_channel_user_id', params.get('sender_id') || params.get('channel_user_id'));
+  }
   const path = location.pathname.toLowerCase();
   if (params.get('role') === 'customer' || path.endsWith('/customer') || params.get('buy_copy') || params.get('tab')) {
     setRole('customer', false);

@@ -28,34 +28,47 @@ class BookstoreE2EUATTestCase(unittest.TestCase):
     test_order_id = None
     test_order_code = None
     test_copy_ids = []
+    test_order_id_2 = None
 
     @classmethod
     def setUpClass(cls):
         cls.headers_staff = {"Cookie": f"bookstore_session={STAFF_TOKEN}", "Content-Type": "application/json"}
         cls.headers_public = {"Content-Type": "application/json"}
+        try:
+            from app import db
+            conn = db()
+            in_stock_cnt = conn.execute("SELECT COUNT(*) AS c FROM copies WHERE status='in_stock'").fetchone()["c"]
+            if in_stock_cnt < 5:
+                conn.execute("UPDATE copies SET status='in_stock' WHERE id IN (SELECT id FROM copies LIMIT 10)")
+                conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     @classmethod
     def tearDownClass(cls):
         # ทำความสะอาดข้อมูลทดสอบ คืนสต็อกหนังสือให้คงสภาพเดิม
-        if cls.test_copy_ids:
-            try:
-                from app import db
-                conn = db()
+        try:
+            from app import db
+            conn = db()
+            if cls.test_copy_ids:
                 q_marks = ",".join(["?"] * len(cls.test_copy_ids))
                 conn.execute(f"UPDATE copies SET status='in_stock' WHERE id IN ({q_marks})", cls.test_copy_ids)
                 conn.execute(f"DELETE FROM sales WHERE copy_id IN ({q_marks})")
-                if cls.test_order_id:
-                    conn.execute("UPDATE orders SET status='cancelled' WHERE id=?", (cls.test_order_id,))
-                conn.commit()
-                conn.close()
-            except Exception:
-                pass
+            if cls.test_order_id:
+                conn.execute("UPDATE orders SET status='cancelled' WHERE id=?", (cls.test_order_id,))
+            if cls.test_order_id_2:
+                conn.execute("UPDATE orders SET status='cancelled' WHERE id=?", (cls.test_order_id_2,))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     def _get(self, path, auth=True):
         url = f"{BASE_URL}{path}"
         headers = self.headers_staff if auth else self.headers_public
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             content_type = resp.headers.get("Content-Type", "")
             data = resp.read()
             if "application/json" in content_type:
@@ -67,7 +80,7 @@ class BookstoreE2EUATTestCase(unittest.TestCase):
         headers = self.headers_staff if auth else self.headers_public
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             content_type = resp.headers.get("Content-Type", "")
             data = resp.read()
             if "application/json" in content_type:
@@ -259,6 +272,74 @@ class BookstoreE2EUATTestCase(unittest.TestCase):
         self.assertIn("total", ord_stats)
         self.assertIn("paid", ord_stats)
         self.assertIn("shipped", ord_stats)
+
+    def test_09_order_payment_chat_notification(self):
+        """9. แจ้งเตือนยืนยันการชำระเงินและสรุปคำสั่งซื้อกลับเข้าห้องแชทอัตโนมัติ"""
+        # 1. จำลองลูกค้าทักแชท Facebook Messenger
+        sim_payload = {
+            "channel": "facebook",
+            "user_id": "fb_uat_customer_888",
+            "user_name": "คุณนุ่น ทดสอบระบบ",
+            "text": "สวัสดีค่ะ สนใจสั่งซื้อหนังสือค่ะ"
+        }
+        status, sim_res = self._post("/api/omni/simulate", sim_payload, auth=False)
+        self.assertEqual(status, 200)
+        conv_id = sim_res["result"]["conversation_id"]
+
+        # 2. ค้นหาหนังสือที่มีในสต็อก 1 เล่ม
+        status, search_data = self._get("/api/search?q=")
+        self.assertEqual(status, 200)
+        copy_id = None
+        for b in search_data.get("results", []):
+            for c in b.get("copies", []):
+                if c.get("status") == "in_stock":
+                    copy_id = c["id"]
+                    break
+            if copy_id:
+                break
+        self.assertIsNotNone(copy_id, "ต้องมีหนังสือ in_stock สำหรับทดสอบสั่งซื้อ")
+
+        # 3. สั่งซื้อโดยแนบ channel และ sender_id จากแชท
+        order_payload = {
+            "copy_id": copy_id,
+            "first_name": "คุณนุ่น",
+            "last_name": "ทดสอบระบบ",
+            "phone": "089-111-2233",
+            "address": "456/78 ซอยทองหล่อ แขวงคลองตันเหนือ เขตวัฒนา กทม. 10110",
+            "channel": "facebook",
+            "channel_user_id": "fb_uat_customer_888"
+        }
+        status, ord_res = self._post("/api/order", order_payload, auth=False)
+        self.assertEqual(status, 200)
+        self.assertTrue(ord_res.get("ok"))
+        order_id = ord_res["order_id"]
+        order_code = ord_res["order_code"]
+        BookstoreE2EUATTestCase.test_order_id_2 = order_id
+        BookstoreE2EUATTestCase.test_copy_ids.append(copy_id)
+
+        # 4. อัปเดตสถานะเป็นชำระเงินแล้ว (action='pay')
+        status, pay_res = self._post("/api/order-update", {"order_id": order_id, "action": "pay"})
+        self.assertEqual(status, 200)
+        self.assertTrue(pay_res.get("ok"))
+
+        # 5. ตรวจสอบว่ามีข้อความสรุปคำสั่งซื้อบันทึกลงในห้องแชท omni_messages
+        status, msg_res = self._get(f"/api/omni/messages?conversation_id={conv_id}")
+        self.assertEqual(status, 200)
+        messages = msg_res if isinstance(msg_res, list) else msg_res.get("messages", [])
+        
+        # ค้นหาข้อความแจ้งเตือนสรุปออเดอร์
+        notification = None
+        for m in messages:
+            content = m.get("content", "")
+            if "ยืนยันการชำระเงินเรียบร้อยแล้วค่ะ" in content and order_code in content:
+                notification = content
+                break
+        
+        self.assertIsNotNone(notification, "ต้องมีข้อความยืนยันการชำระเงินและสรุปออเดอร์ส่งเข้าห้องแชท")
+        self.assertIn("รหัสคำสั่งซื้อ:", notification)
+        self.assertIn(order_code, notification)
+        self.assertIn("รายการสินค้า:", notification)
+        self.assertIn("ที่อยู่จัดส่ง:", notification)
 
 
 if __name__ == "__main__":

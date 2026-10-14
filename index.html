@@ -2649,7 +2649,9 @@ $('btn-order-confirm').addEventListener('click', async () => {
   btn.disabled = true;
   const r = await post('order', {
     copy_id: orderCopyId, first_name: first, last_name: last,
-    phone: phone, address: address, note: $('order-note').value.trim()
+    phone: phone, address: address, note: $('order-note').value.trim(),
+    channel: sessionStorage.getItem('bookstore_order_channel') || '',
+    channel_user_id: sessionStorage.getItem('bookstore_order_channel_user_id') || ''
   });
   btn.disabled = false;
   if (r.error) { err.textContent = r.error; err.hidden = false; return; }
@@ -4055,7 +4057,9 @@ $('btn-cart-submit').addEventListener('click', async () => {
       items: CART.map(x => x.copy_id),
       name, phone, address,
       payment_method: paymentMethod,
-      note
+      note,
+      channel: sessionStorage.getItem('bookstore_order_channel') || '',
+      channel_user_id: sessionStorage.getItem('bookstore_order_channel_user_id') || ''
     });
     $('btn-cart-submit').disabled = false;
     if (r.error) {
@@ -5350,10 +5354,23 @@ setInterval(refreshOmniBadge, 30000);
 // ตรวจจับ URL query params เช่น ?tab=... หรือ ?buy_copy=... จาก Facebook Messenger
 (function handleUrlParams() {
   const urlParams = new URLSearchParams(location.search);
+  const channel = urlParams.get('channel');
+  const senderId = urlParams.get('sender_id') || urlParams.get('channel_user_id');
+  if (channel) sessionStorage.setItem('bookstore_order_channel', channel);
+  if (senderId) sessionStorage.setItem('bookstore_order_channel_user_id', senderId);
+
   const initTab = urlParams.get('tab');
   if (initTab) {
     if (initTab === 'chat') switchTab('search');
     else switchTab(initTab);
+  }
+  const code = urlParams.get('code') || urlParams.get('tracking');
+  if (code && $('tracking-input')) {
+    switchTab('tracking');
+    $('tracking-input').value = code;
+    if (typeof doSearchTracking === 'function') {
+      setTimeout(doSearchTracking, 100);
+    }
   }
   const buyCopyId = urlParams.get('buy_copy');
   if (buyCopyId && typeof openOrderModal === 'function') {
