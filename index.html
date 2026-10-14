@@ -3696,15 +3696,76 @@ async function loadStats() {
         </div>` : `<p class="hint" style="margin:10px 0 0">
           ยังไม่มีข้อมูลเวลารวมต่อเล่ม — เกิดจากถ่ายรูปเล่มแรกจนกดบันทึกเข้าสต็อกสำเร็จ</p>`}
     </div>`;
+  const bb = s.buyback || {};
+  const ord = s.orders || {};
+  const channels = s.channels || [];
+  const channelNames = {
+    facebook: 'Facebook Messenger',
+    line: 'LINE Official Account',
+    web: 'Web Chatbot',
+    instagram: 'Instagram DM'
+  };
+
+  const channelRows = channels.length ? channels.map(c => `
+    <tr>
+      <td><b>${esc(channelNames[c.channel] || c.channel)}</b></td>
+      <td class="mono">${esc(c.channel)}</td>
+      <td class="num mono"><b>${Number(c.cnt).toLocaleString('th-TH')}</b> การสนทนา</td>
+    </tr>`).join('') : '<tr><td colspan="3" class="hint" style="text-align:center;padding:12px">ยังไม่มีประวัติการสอบถาม</td></tr>';
+
   $('stats').innerHTML = `${timingCard}
     <div class="tiles">
       <div class="tile"><p class="k">รายการหนังสือ (ชื่อเรื่อง)</p><p class="v">${s.titles.toLocaleString('th-TH')}</p></div>
       <div class="tile"><p class="k">เล่มคงเหลือ</p><p class="v">${s.in_stock.toLocaleString('th-TH')}</p></div>
       <div class="tile"><p class="k">มูลค่าสต็อก</p><p class="v">${baht(s.stock_value)}</p></div>
       <div class="tile"><p class="k">ขายไปแล้ว</p><p class="v">${s.sold} <small>เล่ม</small></p></div>
-      <div class="tile"><p class="k">ยอดขายรวม</p><p class="v">${baht(s.revenue)}</p></div>
-      <div class="tile"><p class="k">กำไรรวม</p><p class="v">${baht(s.profit)}</p></div>
+      <div class="tile"><p class="k">ยอดขายรวม (Gross)</p><p class="v">${baht(s.revenue)}</p></div>
+      <div class="tile" style="border-left: 3px solid var(--accent, #10b981)"><p class="k">กำไรสุทธิ (Net Profit)</p><p class="v" style="color:var(--accent, #10b981)">${baht(s.net_profit != null ? s.net_profit : s.profit)}</p></div>
     </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>รายงานวิเคราะห์กำไรสุทธิ & การเงิน (Financial & Operations)</h3>
+      <p class="meta">คำนวณจากยอดขายจริง ต้นทุนหนังสือ และการจ่ายเงินรับซื้อคืน</p>
+      <div class="tiles" style="margin-top:12px">
+        <div class="tile"><p class="k">ต้นทุนหนังสือที่ขายได้</p><p class="v">${baht(s.cost_sold || 0)}</p></div>
+        <div class="tile"><p class="k">กำไรขั้นต้น (Gross Profit)</p><p class="v">${baht(s.gross_profit || 0)}</p></div>
+        <div class="tile"><p class="k">จ่ายรับซื้อคืน (เงินสด/โอน)</p><p class="v" style="color:#ef4444">-${baht(bb.payout_cash || 0)}</p></div>
+        <div class="tile"><p class="k">จ่ายรับซื้อคืน (เครดิตร้าน)</p><p class="v" style="color:#3b82f6">${baht(bb.payout_credit || 0)}</p></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px">
+        <div>
+          <h3 style="margin-bottom:4px">ระบบรับซื้อคืน (Buy Back)</h3>
+          <p class="meta" style="margin-top:0">สถานะคำขอประเมินราคาหนังสือมือสอง</p>
+          <div class="tiles" style="margin-top:8px">
+            <div class="tile"><p class="k">คำขอทั้งหมด</p><p class="v">${bb.total_requests || 0}</p></div>
+            <div class="tile"><p class="k">อนุมัติจ่ายแล้ว</p><p class="v">${bb.approved || 0}</p></div>
+            <div class="tile"><p class="k">รอตรวจสอบ/ยืนยัน</p><p class="v">${bb.pending || 0}</p></div>
+          </div>
+        </div>
+        <div>
+          <h3 style="margin-bottom:4px">คำสั่งซื้อและยอดขายออนไลน์ (Orders)</h3>
+          <p class="meta" style="margin-top:0">สถานะคำสั่งซื้อจากแชทบอทและหน้าเว็บ</p>
+          <div class="tiles" style="margin-top:8px">
+            <div class="tile"><p class="k">รวมคำสั่งซื้อ</p><p class="v">${ord.total || 0}</p></div>
+            <div class="tile"><p class="k">ชำระแล้ว / จัดส่งแล้ว</p><p class="v">${(ord.paid || 0) + (ord.shipped || 0)}</p></div>
+            <div class="tile"><p class="k">ยอดชำระสำเร็จ</p><p class="v">${baht(ord.revenue || 0)}</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>สถิติช่องทาง Omni-Channel Inquiries</h3>
+      <p class="meta">สัดส่วนผู้ใช้งานสอบถามข้อมูลหนังสือและสั่งซื้อผ่านแต่ละช่องทาง</p>
+      <div class="scroll-x"><table>
+        <thead><tr><th>ช่องทาง</th><th>Channel ID</th><th class="num">ปริมาณการสนทนา</th></tr></thead>
+        <tbody>${channelRows}</tbody>
+      </table></div>
+    </div>
+
     <div class="card">
       <h3>หนังสือแยกตามชั้นวาง</h3>
       <p class="meta">รู้ว่าชั้นไหนแน่น ชั้นไหนว่าง — ใช้วางแผนจัดร้าน</p>
@@ -3735,25 +3796,47 @@ let orderFilter = 'open';
 let ORDERS_CACHE = [];
 
 function orderRowHTML(r) {
+  let items = [];
+  if (r.items_json) {
+    try { items = JSON.parse(r.items_json); } catch (e) { items = []; }
+  }
+  const isMulti = items.length > 0;
+  const displayTitle = isMulti
+    ? `${items[0].title || 'หนังสือ'} ${items.length > 1 ? `(และอีก ${items.length - 1} เล่ม)` : ''}`
+    : (r.title || ('คำสั่งซื้อ #' + r.id));
+  const displayAmount = r.total_amount != null ? r.total_amount : (r.price || 0);
+  const displayCode = r.order_code || ('#' + r.id);
+  const receiptUrl = new URL('order-receipt?id=' + encodeURIComponent(r.id), location.href.replace(/[^/]*$/, '')).toString();
+  const receiptBtn = `<a href="${receiptUrl}" target="_blank" class="btn ghost sm" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px">🖨️ ใบเสร็จ/ใบส่งของ</a>`;
+
   const acts = r.status === 'pending'
     ? `<button class="btn sm" data-oact="pay" data-oid="${r.id}">ยืนยันรับเงินแล้ว</button>
-       <button class="btn ghost sm" data-oact="cancel" data-oid="${r.id}">ยกเลิก</button>`
+       <button class="btn ghost sm" data-oact="cancel" data-oid="${r.id}">ยกเลิก</button>
+       ${receiptBtn}`
     : r.status === 'paid'
     ? `<input class="track-in" id="track-${r.id}" placeholder="เลขพัสดุ (ไม่ใส่ก็ได้)">
        <button class="btn sm" data-oact="ship" data-oid="${r.id}">บันทึกจัดส่ง</button>
-       <button class="btn ghost sm" data-oact="cancel" data-oid="${r.id}">ยกเลิก/คืนเงิน</button>`
-    : '';
+       <button class="btn ghost sm" data-oact="cancel" data-oid="${r.id}">ยกเลิก/คืนเงิน</button>
+       ${receiptBtn}`
+    : `<div style="display:inline-flex; align-items:center; gap:6px">${receiptBtn}</div>`;
+
+  const detailsLine = isMulti
+    ? `<p class="meta">ผู้รับ: <b>${esc(r.customer_name)}</b> · โทร: ${esc(r.phone || '-')}
+        · รวม <b>${items.length} เล่ม</b> · ยอดชำระ <b>${baht(displayAmount)}</b>
+        ${r.shipping_cost ? `<small>(ค่าส่ง ${baht(r.shipping_cost)})</small>` : ''}</p>`
+    : `<p class="meta">${esc(r.customer_name)} · ${esc(r.phone || '-')}
+        · <span class="mono">${esc(r.code || '-')}</span> · ชั้น <span class="mono">${esc(r.shelf || '-')}</span>
+        · สภาพ ${esc(r.grade || '-')} <b>${baht(displayAmount)}</b></p>`;
+
   return `
     <div class="order-row st-${r.status}">
       <div class="order-main">
         <div class="order-head">
-          <b>${esc(r.title)}</b>
-          <span class="badge ${ORDER_BADGE[r.status]}">${ORDER_LABEL[r.status]}</span>
-          <span class="order-id">#${r.id}</span>
+          <b>${esc(displayTitle)}</b>
+          <span class="badge ${ORDER_BADGE[r.status] || 'low'}">${ORDER_LABEL[r.status] || r.status}</span>
+          <span class="order-id mono">${esc(displayCode)}</span>
         </div>
-        <p class="meta">${esc(r.customer_name)} · ${esc(r.phone || '-')}
-          · <span class="mono">${esc(r.code)}</span> · ชั้น <span class="mono">${esc(r.shelf)}</span>
-          · สภาพ ${esc(r.grade)} <b>${baht(r.price)}</b></p>
+        ${detailsLine}
         ${r.address ? `<p class="order-addr">${esc(r.address)}</p>` : ''}
         ${r.note ? `<p class="syn">“${esc(r.note)}”</p>` : ''}
         ${r.pay_ref ? `<p class="meta">ชำระผ่าน PromptPay · อ้างอิง <span class="mono">${esc(r.pay_ref)}</span></p>` : ''}

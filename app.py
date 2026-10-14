@@ -1412,11 +1412,12 @@ def api_orders():
     rows = conn.execute(
         "SELECT o.id, o.customer_name, o.phone, o.address, o.note, o.status,"
         "       o.created_at, o.paid_at, o.shipped_at, o.tracking,"
+        "       o.order_code, o.items_json, o.shipping_cost, o.subtotal, o.total_amount, o.payment_method,"
         "       c.id copy_id, c.grade, c.price, c.shelf, c.code, t.title,"
         "       (SELECT p.ref FROM payments p WHERE p.order_id=o.id AND p.status='paid'"
         "          ORDER BY p.id DESC LIMIT 1) pay_ref"
-        "  FROM orders o JOIN copies c ON c.id = o.copy_id"
-        "  JOIN titles t ON t.id = c.title_id"
+        "  FROM orders o LEFT JOIN copies c ON c.id = o.copy_id"
+        "  LEFT JOIN titles t ON t.id = c.title_id"
         " ORDER BY CASE o.status WHEN 'pending' THEN 0 WHEN 'paid' THEN 1"
         "                        WHEN 'shipped' THEN 2 ELSE 3 END, o.id DESC").fetchall()
     orders = [dict(r) for r in rows]
@@ -1426,7 +1427,7 @@ def api_orders():
     for o in orders:
         counts[o["status"]] = counts.get(o["status"], 0) + 1
         if o["status"] in ("paid", "shipped"):
-            revenue += o["price"] or 0
+            revenue += (o.get("total_amount") or o.get("price") or 0)
     return {"orders": orders, "counts": counts, "revenue": revenue,
             "open": counts.get("pending", 0) + counts.get("paid", 0)}
 
@@ -2091,6 +2092,30 @@ def api_stats():
     revenue = g("SELECT IFNULL(SUM(price),0) FROM sales")
     cost_sold = g("SELECT IFNULL(SUM(c.cost),0) FROM sales s JOIN copies c ON c.id=s.copy_id")
     no_isbn = g("SELECT COUNT(*) FROM titles WHERE isbn IS NULL")
+
+    # Buyback metrics (PRD 1.2)
+    bb_total = g("SELECT COUNT(*) FROM buyback_requests")
+    bb_approved = g("SELECT COUNT(*) FROM buyback_requests WHERE status IN ('approved', 'completed')")
+    bb_pending = g("SELECT COUNT(*) FROM buyback_requests WHERE status IN ('pending', 'received', 'inspected')")
+    bb_payout_cash = g("SELECT IFNULL(SUM(total_offer_price),0) FROM buyback_requests WHERE status IN ('approved', 'completed') AND payout_method IN ('promptpay', 'bank', 'cash')")
+    bb_payout_credit = g("SELECT IFNULL(SUM(total_offer_price),0) FROM buyback_requests WHERE status IN ('approved', 'completed') AND payout_method='store_credit'")
+    bb_payout_total = bb_payout_cash + bb_payout_credit
+
+    # Order metrics (PRD 1.2)
+    orders_total = g("SELECT COUNT(*) FROM orders")
+    orders_paid = g("SELECT COUNT(*) FROM orders WHERE status='paid'")
+    orders_shipped = g("SELECT COUNT(*) FROM orders WHERE status='shipped'")
+    orders_pending = g("SELECT COUNT(*) FROM orders WHERE status='pending'")
+    orders_cancelled = g("SELECT COUNT(*) FROM orders WHERE status='cancelled'")
+    orders_revenue = g("SELECT IFNULL(SUM(total_amount),0) FROM orders WHERE status IN ('paid', 'shipped')")
+
+    # กำไรขั้นต้น และ กำไรสุทธิ (Net Profit: ยอดขาย หัก ต้นทุนขาย และ หักยอดจ่ายรับซื้อคืนด้วยเงินสด)
+    gross_profit = revenue - cost_sold
+    net_profit = gross_profit - bb_payout_cash
+
+    # Omni-channel breakdown
+    channels = conn.execute("SELECT channel, COUNT(*) as cnt FROM omni_conversations GROUP BY channel").fetchall()
+
     shelves = conn.execute(
         "SELECT shelf, COUNT(*) n FROM copies WHERE status='in_stock'"
         " GROUP BY shelf ORDER BY shelf"
@@ -2103,8 +2128,29 @@ def api_stats():
     conn.close()
     return {
         "titles": titles, "in_stock": in_stock, "sold": sold,
-        "stock_value": value, "revenue": revenue, "profit": revenue - cost_sold,
+        "stock_value": value, "revenue": revenue,
+        "gross_profit": gross_profit,
+        "net_profit": net_profit,
+        "profit": net_profit,
+        "cost_sold": cost_sold,
         "no_isbn": no_isbn,
+        "buyback": {
+            "total_requests": bb_total,
+            "approved": bb_approved,
+            "pending": bb_pending,
+            "payout_cash": bb_payout_cash,
+            "payout_credit": bb_payout_credit,
+            "payout_total": bb_payout_total
+        },
+        "orders": {
+            "total": orders_total,
+            "paid": orders_paid,
+            "shipped": orders_shipped,
+            "pending": orders_pending,
+            "cancelled": orders_cancelled,
+            "revenue": orders_revenue
+        },
+        "channels": [dict(c) for c in channels],
         "shelves": [dict(s) for s in shelves],
         "recent_sales": [dict(r) for r in recent],
     }
@@ -3069,6 +3115,259 @@ def api_buyback_label_html(code):
     return html
 
 
+def api_order_receipt_html(val):
+    """สร้างหน้า HTML สำหรับพิมพ์ใบเสร็จรับเงินและใบจัดส่งพัสดุ (Printable Order Receipt & Packing Slip)"""
+    val_str = str(val or "").strip()
+    if not val_str:
+        return None
+    conn = db()
+    if val_str.isdigit():
+        row = conn.execute("SELECT * FROM orders WHERE id=?", (int(val_str),)).fetchone()
+    else:
+        row = conn.execute("SELECT * FROM orders WHERE order_code=? OR tracking=?", (val_str, val_str)).fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    order = dict(row)
+    order_id = order["id"]
+    order_code = order.get("order_code") or f"ORD-{order_id:06d}"
+
+    try:
+        items = json.loads(order.get("items_json") or "[]")
+    except Exception:
+        items = []
+
+    if not items and order.get("copy_id"):
+        c = conn.execute(
+            "SELECT c.*, t.title, t.author, t.cover_price FROM copies c"
+            " JOIN titles t ON t.id = c.title_id WHERE c.id = ?",
+            (order["copy_id"],)
+        ).fetchone()
+        if c:
+            items = [{
+                "copy_id": c["id"],
+                "title": c["title"],
+                "author": c.get("author") or "",
+                "grade": c["grade"],
+                "price": c["price"],
+                "code": c["code"] if "code" in c.keys() and c["code"] else f"BK-{c['id']:06d}",
+                "shelf": c["shelf"]
+            }]
+    conn.close()
+
+    try:
+        barcode_svg = make_barcode_svg(order_code).decode("utf-8")
+    except Exception:
+        barcode_svg = f'<div style="font-family:monospace;font-size:22px;font-weight:bold;">{order_code}</div>'
+
+    status_thai = ORDER_FLOW.get(order.get("status"), order.get("status", "-"))
+    status_bg = "#dcfce7" if order.get("status") in ("paid", "shipped") else "#ffedd5" if order.get("status") == "pending" else "#f1f5f9"
+    status_color = "#15803d" if order.get("status") in ("paid", "shipped") else "#c2410c" if order.get("status") == "pending" else "#475569"
+
+    pm = order.get("payment_method") or "promptpay"
+    pm_thai = "พร้อมเพย์ QR (PromptPay)" if pm == "promptpay" else "บัตรเครดิต/เดบิต (Credit/Debit Card)" if pm == "credit_card" else pm.title()
+
+    subtotal = float(order.get("subtotal") or sum(float(it.get("price", 0)) for it in items))
+    shipping = float(order.get("shipping_cost") or 0.0)
+    total = float(order.get("total_amount") or (subtotal + shipping))
+
+    items_rows = ""
+    for idx, it in enumerate(items, 1):
+        grade = it.get("grade", "A")
+        code = it.get("code") or f"BK-{it.get('copy_id', 0):06d}"
+        shelf = it.get("shelf") or "-"
+        price = float(it.get("price", 0.0))
+        items_rows += f"""
+        <tr>
+          <td style="text-align:center;padding:10px 8px;border-bottom:1px solid #e2e8f0;">{idx}</td>
+          <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;">
+            <b style="font-size:14px;color:#0f172a;">{it.get('title')}</b><br>
+            <span style="font-size:12px;color:#64748b;">รหัสเล่ม: <span style="font-family:monospace;">{code}</span> · ชั้นวาง: <span style="font-family:monospace;">{shelf}</span></span>
+          </td>
+          <td style="text-align:center;padding:10px 8px;border-bottom:1px solid #e2e8f0;">
+            <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#f1f5f9;font-weight:600;font-size:12px;">เกรด {grade}</span>
+          </td>
+          <td style="text-align:right;padding:10px 8px;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:14px;color:#0f172a;">฿{price:,.2f}</td>
+        </tr>
+        """
+
+    created_dt = order.get("created_at") or now()
+    created_display = created_dt.replace("T", " ")[:16] if created_dt else "-"
+    paid_dt = order.get("paid_at")
+    paid_display = paid_dt.replace("T", " ")[:16] if paid_dt else "-"
+    tracking = order.get("tracking") or "-"
+    shipping_display = f"฿{shipping:,.2f}" if shipping > 0 else '<span style="color:#16a34a;">ฟรี (ยอดครบ ฿500)</span>'
+
+    html = f"""<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ใบเสร็จรับเงิน / ใบจัดส่งสินค้า — {order_code}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ font-family: 'IBM Plex Sans Thai', sans-serif; background: #f1f5f9; margin: 0; padding: 24px; color: #0f172a; }}
+  .sheet {{ max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }}
+  .header {{ display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 18px; margin-bottom: 20px; }}
+  .brand-title {{ font-family: 'Chakra Petch', sans-serif; font-size: 24px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px; }}
+  .brand-sub {{ font-size: 13px; color: #475569; margin-top: 4px; line-height: 1.4; }}
+  .receipt-meta {{ text-align: right; }}
+  .receipt-badge {{ display: inline-block; padding: 4px 12px; border-radius: 6px; font-weight: 700; font-size: 13px; margin-bottom: 6px; background: {status_bg}; color: {status_color}; }}
+  .receipt-no {{ font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 700; color: #0f172a; }}
+  .receipt-date {{ font-size: 12px; color: #64748b; margin-top: 2px; }}
+  
+  .grid-info {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }}
+  .info-box {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; background: #f8fafc; }}
+  .info-title {{ font-weight: 700; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }}
+  .info-name {{ font-weight: 700; font-size: 15px; color: #0f172a; margin-bottom: 4px; }}
+  .info-text {{ font-size: 13px; color: #334155; line-height: 1.5; }}
+  
+  .table-items {{ width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px; }}
+  .table-items th {{ background: #0f172a; color: #fff; padding: 10px 8px; text-align: left; font-weight: 600; font-size: 12px; }}
+  .table-items td {{ padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }}
+  
+  .summary-wrap {{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 20px; }}
+  .barcode-card {{ flex: 1; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px; text-align: center; background: #fafafa; }}
+  .barcode-svg {{ display: flex; justify-content: center; margin-bottom: 4px; }}
+  .totals-table {{ width: 280px; border-collapse: collapse; font-size: 13px; }}
+  .totals-table td {{ padding: 6px 0; }}
+  .totals-table tr.total-row td {{ border-top: 2px solid #0f172a; padding-top: 10px; font-size: 17px; font-weight: 700; color: #0f172a; }}
+  
+  .checklist-card {{ border: 1px solid #fde68a; border-radius: 8px; padding: 14px; margin-bottom: 24px; background: #fffbeb; }}
+  .checklist-title {{ font-weight: 700; font-size: 13px; color: #92400e; margin-bottom: 6px; }}
+  .checklist-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #78350f; }}
+  
+  .sig-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 20px; padding-top: 16px; border-top: 1px dashed #cbd5e1; font-size: 13px; color: #475569; }}
+  .sig-line {{ margin-top: 36px; border-bottom: 1px solid #94a3b8; }}
+  .sig-lbl {{ text-align: center; margin-top: 6px; font-size: 12px; }}
+
+  .actions-bar {{ display: flex; justify-content: center; gap: 12px; margin-top: 24px; }}
+  .btn-act {{ padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; font-family: inherit; }}
+  .btn-print {{ background: #0f172a; color: #fff; }}
+  .btn-print:hover {{ background: #334155; }}
+  .btn-close {{ background: #e2e8f0; color: #334155; }}
+  .btn-close:hover {{ background: #cbd5e1; }}
+
+  @media print {{
+    body {{ background: #fff; padding: 0; }}
+    .sheet {{ border: none; box-shadow: none; padding: 0; max-width: 100%; border-radius: 0; }}
+    .no-print {{ display: none !important; }}
+    @page {{ size: A4 portrait; margin: 12mm 15mm; }}
+  }}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <div class="header">
+    <div>
+      <div class="brand-title">📚 BOOKSTORE DEMO</div>
+      <div class="brand-sub">
+        ร้านหนังสือมือสองออนไลน์ (Online Second-Hand Bookstore)<br>
+        123/45 ถนนพหลโยธิน แขวงพญาไท เขตพญาไท กรุงเทพฯ 10400<br>
+        โทร: 02-123-4567 | อีเมล: contact@ai4you.click | https://ai4you.click/bookstore-demo/
+      </div>
+    </div>
+    <div class="receipt-meta">
+      <div class="receipt-badge">สถานะ: {status_thai}</div>
+      <div class="receipt-no">{order_code}</div>
+      <div class="receipt-date">วันที่สั่งซื้อ: {created_display} น.</div>
+    </div>
+  </div>
+
+  <div class="grid-info">
+    <div class="info-box">
+      <div class="info-title">ผู้สั่งซื้อและจัดส่งสินค้า (CUSTOMER & SHIPPING)</div>
+      <div class="info-name">{order["customer_name"]}</div>
+      <div class="info-text">
+        เบอร์โทรศัพท์: <b>{order.get("phone") or "-"}</b><br>
+        ที่อยู่จัดส่ง: {order.get("address") or "-"}
+      </div>
+    </div>
+    <div class="info-box">
+      <div class="info-title">รายละเอียดการชำระเงินและการจัดส่ง (PAYMENT & DELIVERY)</div>
+      <div class="info-text">
+        ช่องทางชำระเงิน: <b>{pm_thai}</b><br>
+        วันที่ยืนยันชำระ: {paid_display} น.<br>
+        รหัสติดตามพัสดุ (Tracking): <b style="font-family:monospace;color:#0f172a;">{tracking}</b>
+      </div>
+    </div>
+  </div>
+
+  <table class="table-items">
+    <thead>
+      <tr>
+        <th style="width:36px;text-align:center;">#</th>
+        <th>รายการหนังสือ (Title & Details)</th>
+        <th style="width:90px;text-align:center;">สภาพ</th>
+        <th style="width:110px;text-align:right;">ราคา</th>
+      </tr>
+    </thead>
+    <tbody>
+      {items_rows}
+    </tbody>
+  </table>
+
+  <div class="summary-wrap">
+    <div class="barcode-card">
+      <div class="barcode-svg">{barcode_svg}</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#475569;letter-spacing:1px;">{order_code}</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">สแกนเพื่อตรวจสอบหรือตัดสต็อกหน้าร้าน</div>
+    </div>
+
+    <table class="totals-table">
+      <tr>
+        <td style="color:#64748b;">รวมมูลค่าสินค้า ({len(items)} เล่ม):</td>
+        <td style="text-align:right;font-weight:600;">฿{subtotal:,.2f}</td>
+      </tr>
+      <tr>
+        <td style="color:#64748b;">ค่าจัดส่งพัสดุ:</td>
+        <td style="text-align:right;font-weight:600;">{shipping_display}</td>
+      </tr>
+      <tr class="total-row">
+        <td>ยอดรวมสุทธิ (Total):</td>
+        <td style="text-align:right;color:#0f5f63;">฿{total:,.2f}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="checklist-card">
+    <div class="checklist-title">📋 เช็กลิสต์การตรวจสภาพและการแพ็กพัสดุ (Warehouse Quality Assurance)</div>
+    <div class="checklist-grid">
+      <div>☑ ตรวจสอบสภาพเล่มจริงตรงตามเกรดที่ลูกค้าระบุ</div>
+      <div>☑ ตรวจสอบรหัสสติกเกอร์บาร์โค้ดหลังเล่มตรงกับใบเสร็จ</div>
+      <div>☑ ห่อพลาสติกกันกระแทก (Bubble wrap) อย่างน้อย 2 ชั้น</div>
+      <div>☑ แนบที่คั่นหนังสือและข้อความขอบคุณจากทางร้าน</div>
+    </div>
+  </div>
+
+  <div class="sig-grid">
+    <div>
+      ผู้จัดเตรียมและตรวจสภาพสินค้า:
+      <div class="sig-line"></div>
+      <div class="sig-lbl">( .................................................... ) &nbsp;&nbsp; วันที่: ......./......./............</div>
+    </div>
+    <div>
+      ผู้ตรวจสอบและส่งมอบพัสดุ:
+      <div class="sig-line"></div>
+      <div class="sig-lbl">( .................................................... ) &nbsp;&nbsp; วันที่: ......./......./............</div>
+    </div>
+  </div>
+
+  <div class="actions-bar no-print">
+    <button class="btn-act btn-print" onclick="window.print()">🖨️ พิมพ์ใบเสร็จ / ใบส่งของ</button>
+    <button class="btn-act btn-close" onclick="window.close()">✕ ปิดหน้าต่าง</button>
+  </div>
+</div>
+
+</body>
+</html>"""
+    return html
+
+
 # ================================================================
 # E-Commerce Cart & Multi-Item Checkout
 # ================================================================
@@ -3961,6 +4260,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/cart/quote":
             cids = [int(x) for x in (query.get("copy_ids") or "").split(",") if x.isdigit()]
             return self._send(200, api_cart_quote({"copy_ids": cids}))
+        if path == "/order-receipt":
+            html = api_order_receipt_html(query.get("id") or query.get("code") or query.get("order_id") or "")
+            if not html:
+                return self._send(404, "ไม่พบรายการคำสั่งซื้อนี้", "text/plain; charset=utf-8")
+            return self._send(200, html, "text/html; charset=utf-8")
+        if path == "/api/order/receipt":
+            if query.get("format") == "html":
+                html = api_order_receipt_html(query.get("id") or query.get("code") or query.get("order_id") or "")
+                if not html:
+                    return self._send(404, {"error": "not found"})
+                return self._send(200, html, "text/html; charset=utf-8")
+            return self._send(200, api_order_track(query.get("id") or query.get("code") or query.get("order_id") or query.get("phone") or query.get("q")))
 
         if path.startswith("/api/cover/"):
             # รูปปกสาธารณะ — ให้ Meta/CDN และลูกค้าดูรูปปกได้โดยไม่ต้องล็อกอิน
