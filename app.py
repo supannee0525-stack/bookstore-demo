@@ -2220,15 +2220,15 @@ def api_buyback_estimate(p):
         elif isbn:
             t = conn.execute("SELECT * FROM titles WHERE isbn=? LIMIT 1", (isbn,)).fetchone()
             if t:
-                ref_price = float(t["cover_price"] or 250)
-                title = t["title"]
-                author = t["author"] or ""
+                ref_price = float(it.get("cover_price") or it.get("reference_price") or t["cover_price"] or 250)
+                title = it.get("title") or t["title"]
+                author = it.get("author") or t["author"] or ""
                 ref_source = "database_isbn"
             else:
-                ref_price = float(it.get("cover_price") or 250)
+                ref_price = float(it.get("cover_price") or it.get("reference_price") or 250)
                 ref_source = "manual_isbn"
         else:
-            ref_price = float(it.get("cover_price") or 200)
+            ref_price = float(it.get("cover_price") or it.get("reference_price") or 200)
             ref_source = "user_input"
 
         rate_cash = (100.0 - BUYBACK_DEDUCTION_PCT) / 100.0
@@ -2327,6 +2327,7 @@ def api_buyback_create(p, user=None):
 
     return {
         "ok": True,
+        "id": req_id,
         "request_id": req_id,
         "tracking_code": track_code,
         "total_offer_price": total_offer,
@@ -2376,6 +2377,144 @@ def api_buyback_track(query_val):
         results.append(d)
 
     return {"ok": True, "found": True, "results": results}
+
+
+def api_buyback_admin_list():
+    """ดึงรายการคำขอขายคืนทั้งหมดสำหรับแอดมิน/พนักงานตรวจสภาพและอนุมัติ"""
+    conn = db()
+    rows = conn.execute("SELECT * FROM buyback_requests ORDER BY id DESC").fetchall()
+    conn.close()
+
+    requests_list = []
+    counts = {"pending_shipment": 0, "in_transit": 0, "received": 0, "inspecting": 0, "approved": 0, "rejected": 0, "price_adjusted": 0}
+    for r in rows:
+        d = dict(r)
+        st = d.get("status") or "pending_shipment"
+        counts[st] = counts.get(st, 0) + 1
+        try:
+            d["items"] = json.loads(d["items_json"])
+        except Exception:
+            d["items"] = []
+        requests_list.append(d)
+
+    open_count = counts.get("pending_shipment", 0) + counts.get("in_transit", 0) + counts.get("received", 0) + counts.get("inspecting", 0)
+    return {"ok": True, "requests": requests_list, "counts": counts, "open_count": open_count}
+
+
+def api_buyback_admin_action(p):
+    """แอดมินดำเนินการคำขอรับซื้อ: รับพัสดุ / ตรวจสภาพ / อนุมัติจ่ายเงิน / ปฏิเสธ / ปรับราคา"""
+    req_id = p.get("id") or p.get("request_id")
+    action = (p.get("action") or "").strip()
+    admin_note = (p.get("admin_note") or "").strip()
+    shelf = (p.get("shelf") or "A-01-1").strip().upper()
+
+    if not req_id:
+        return {"error": "กรุณาระบุรหัสคำขอ"}
+
+    conn = db()
+    row = conn.execute("SELECT * FROM buyback_requests WHERE id=?", (req_id,)).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "ไม่พบคำขอรับซื้อคืนนี้"}
+
+    req = dict(row)
+
+    if action == "receive":
+        conn.execute("UPDATE buyback_requests SET status='received', updated_at=?, admin_note=? WHERE id=?",
+                     (now(), admin_note or req["admin_note"], req_id))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "status": "received", "message": f"บันทึกรับพัสดุ {req['tracking_code']} เข้าคลังเรียบร้อย"}
+
+    elif action == "inspect":
+        conn.execute("UPDATE buyback_requests SET status='inspecting', updated_at=?, admin_note=? WHERE id=?",
+                     (now(), admin_note or req["admin_note"], req_id))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "status": "inspecting", "message": f"เริ่มขั้นตอนตรวจสภาพหนังสือ {req['tracking_code']}"}
+
+    elif action == "approve":
+        payout_method = req["payout_method"]
+        amount = req["total_offer_price"]
+
+        if payout_method == "store_credit":
+            cust_row = None
+            if req.get("customer_id"):
+                cust_row = conn.execute("SELECT * FROM customers WHERE id=?", (req["customer_id"],)).fetchone()
+            if not cust_row and req.get("phone"):
+                cust_row = conn.execute("SELECT * FROM customers WHERE phone=?", (req["phone"],)).fetchone()
+            if not cust_row and req.get("customer_name"):
+                cust_row = conn.execute("SELECT * FROM customers WHERE name=?", (req["customer_name"],)).fetchone()
+
+            if cust_row:
+                new_credit = (cust_row["store_credit"] or 0.0) + amount
+                conn.execute("UPDATE customers SET store_credit=? WHERE id=?", (new_credit, cust_row["id"]))
+
+        added_codes = []
+        try:
+            items = json.loads(req["items_json"])
+        except Exception:
+            items = []
+
+        for item in items:
+            title = (item.get("title") or "หนังสือรับซื้อคืน").strip()
+            isbn = item.get("isbn") or None
+            grade = item.get("grade") or "B"
+            ref_price = float(item.get("ref_price") or item.get("reference_price") or 0)
+            cost = float(item.get("cash_offer") or item.get("offer_price") or round(ref_price * 0.7))
+            sell_price = round(ref_price * GRADE_FACTOR.get(grade, 0.35) / 5) * 5 if ref_price > 0 else max(50, cost * 1.5)
+
+            trow = conn.execute("SELECT id FROM titles WHERE title=? LIMIT 1", (title,)).fetchone()
+            if trow:
+                tid = trow["id"]
+            else:
+                cur_t = conn.execute(
+                    "INSERT INTO titles (isbn, title, cover_price, source)"
+                    " VALUES (?, ?, ?, 'buyback')",
+                    (isbn, title, ref_price)
+                )
+                tid = cur_t.lastrowid
+
+            cur_c = conn.execute(
+                "INSERT INTO copies (title_id, grade, price, cost, shelf, status, added_at, note)"
+                " VALUES (?, ?, ?, ?, ?, 'in_stock', ?, ?)",
+                (tid, grade, sell_price, cost, shelf, now(), f"รับซื้อคืนจาก {req['tracking_code']}")
+            )
+            cid = cur_c.lastrowid
+            code = copy_code(cid)
+            conn.execute("UPDATE copies SET code=? WHERE id=?", (code, cid))
+            added_codes.append(code)
+
+        conn.execute("UPDATE buyback_requests SET status='approved', completed_at=?, updated_at=?, admin_note=? WHERE id=?",
+                     (now(), now(), admin_note or f"อนุมัติเข้าสต็อก {len(added_codes)} เล่ม ({', '.join(added_codes)})", req_id))
+        conn.commit()
+        conn.close()
+        return {
+            "ok": True,
+            "status": "approved",
+            "message": f"อนุมัติรับซื้อ {req['tracking_code']} เรียบร้อย! จ่าย {amount:,.0f} ฿ และนำเข้าสต็อก {len(added_codes)} เล่ม",
+            "added_codes": added_codes
+        }
+
+    elif action == "reject":
+        reason = (p.get("rejection_reason") or p.get("reason") or "สภาพหนังสือไม่ผ่านเกณฑ์").strip()
+        conn.execute("UPDATE buyback_requests SET status='rejected', rejection_reason=?, updated_at=?, admin_note=? WHERE id=?",
+                     (reason, now(), admin_note or reason, req_id))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "status": "rejected", "message": f"ปฏิเสธคำขอ {req['tracking_code']}: {reason}"}
+
+    elif action == "adjust_price":
+        new_offer = float(p.get("new_offer_price") or req["total_offer_price"])
+        reason = (p.get("reason") or "ปรับราคาตามสภาพเล่มจริง").strip()
+        conn.execute("UPDATE buyback_requests SET status='price_adjusted', total_offer_price=?, rejection_reason=?, updated_at=? WHERE id=?",
+                     (new_offer, reason, now(), req_id))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "status": "price_adjusted", "message": f"ปรับราคาประเมิน {req['tracking_code']} เป็น {new_offer:,.0f} ฿ ({reason})"}
+
+    conn.close()
+    return {"error": f"ไม่รู้จักคำสั่ง {action}"}
 
 
 def api_buyback_label_html(code):
@@ -2524,9 +2663,23 @@ def api_buyback_label_html(code):
 # E-Commerce Cart & Multi-Item Checkout
 # ================================================================
 
+def _parse_copy_ids(raw):
+    copy_ids = []
+    for x in (raw or []):
+        if isinstance(x, dict):
+            cid = x.get("copy_id") or x.get("id")
+            if cid:
+                try: copy_ids.append(int(cid))
+                except Exception: pass
+        elif x is not None:
+            try: copy_ids.append(int(x))
+            except Exception: pass
+    return copy_ids
+
+
 def api_cart_quote(p):
     """คำนวณราคารถเข็นสินค้า รวมค่าจัดส่ง"""
-    copy_ids = p.get("copy_ids") or p.get("items") or []
+    copy_ids = _parse_copy_ids(p.get("copy_ids") or p.get("items"))
     if not copy_ids:
         return {"ok": True, "items": [], "count": 0, "item_count": 0, "subtotal": 0, "shipping_cost": 0, "total_amount": 0}
 
@@ -2578,7 +2731,7 @@ def api_cart_checkout(p, user=None):
     if len(address) < 8:
         return {"error": "กรุณากรอกที่อยู่จัดส่งให้ครบถ้วน"}
 
-    copy_ids = p.get("copy_ids") or p.get("items") or []
+    copy_ids = _parse_copy_ids(p.get("copy_ids") or p.get("items"))
     if not copy_ids:
         return {"error": "ไม่มีรายการสินค้าในตะกร้า"}
 
@@ -3145,6 +3298,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_stats())
         if path == "/api/orders":
             return self._send(200, api_orders())
+        if path == "/api/buyback/admin-list":
+            return self._send(200, api_buyback_admin_list())
         if path == "/api/timing-stats":
             return self._send(200, api_timing_stats())
         if path == "/api/shelves":
@@ -3298,6 +3453,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_buyback_quote(p))
         if path == "/api/buyback-accept":
             return self._send(200, api_buyback_accept(p))
+        if path == "/api/buyback/admin-action":
+            return self._send(200, api_buyback_admin_action(p))
         if path == "/api/shelf-add":
             return self._send(200, api_shelf_add(p))
         if path == "/api/title-save":

@@ -809,6 +809,25 @@ td.num { text-align: right; }
 .order-row.st-paid { border-left: 3.5px solid var(--accent); }
 .order-row.st-shipped { border-left: 3.5px solid var(--ok); }
 .order-row.st-cancelled { opacity: .55; }
+.order-row.st-pending_shipment { border-left: 3.5px solid #94a3b8; }
+.order-row.st-in_transit { border-left: 3.5px solid #38bdf8; }
+.order-row.st-received { border-left: 3.5px solid #f59e0b; }
+.order-row.st-inspecting { border-left: 3.5px solid #a855f7; }
+.order-row.st-approved { border-left: 3.5px solid #10b981; }
+.order-row.st-rejected { border-left: 3.5px solid #ef4444; opacity: .65; }
+.order-row.st-price_adjusted { border-left: 3.5px solid #f97316; }
+
+.st-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; font-weight: 600;
+}
+.st-badge.st-pending_shipment { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+.st-badge.st-in_transit { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+.st-badge.st-received { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+.st-badge.st-inspecting { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+.st-badge.st-approved { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+.st-badge.st-rejected { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.st-badge.st-price_adjusted { background: rgba(249, 115, 22, 0.2); color: #fb923c; }
 .order-main { flex: 1; min-width: 210px; }
 .order-main b { font-size: 0.94rem; color: #fff; }
 .order-main .meta { margin: 3px 0 0; }
@@ -1468,85 +1487,108 @@ body.is-customer #customer-nav { display: flex !important; }
     <h2>ระบบรับซื้อคืนหนังสือ (Buy Back System — หัก 30%)</h2>
     <p class="hint">คำนวณราคารับซื้ออัตโนมัติ โดยหัก 30% จากราคาอ้างอิงหรือประวัติการซื้อ พร้อมออกใบปะหน้าพัสดุ (Shipping Label) ส่งเข้าคลัง</p>
 
-    <!-- กล่องเพิ่มเล่มลงรายการขายคืน -->
-    <div class="card" style="padding:16px;margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <h3 style="margin:0;font-size:1rem;color:#60a5fa">1. เพิ่มหนังสือที่จะขายคืน</h3>
-        <button class="btn sm ghost" id="btn-open-order-picker" style="font-size:0.78rem">📂 เลือกจากประวัติที่เคยซื้อ</button>
-      </div>
-
-      <div class="row" style="margin-bottom:8px">
-        <input id="bb-input-isbn" placeholder="พิมพ์ชื่อหนังสือ หรือกรอกรหัส ISBN" style="flex:2">
-        <input id="bb-input-cover" placeholder="ราคาปก (ถ้ามี)" class="mono" inputmode="decimal" style="flex:1">
-        <button class="btn sm" id="btn-bb-add-item" style="flex:none">+ เพิ่มลงกล่อง</button>
-      </div>
-
-      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
-        <button class="btn ghost sm" id="btn-bscan" style="font-size:0.76rem">📷 สแกนสติกเกอร์ร้าน (BK-xxxxxx)</button>
-        <span class="hint" style="margin:0">หรือระบบคำนวณอัตโนมัติหัก 30%</span>
-      </div>
-      <div id="bscanner" hidden class="scanner" style="margin-top:8px">
-        <video id="bscan-video" playsinline muted></video>
-        <button class="btn ghost sm" id="btn-bscan-stop">ปิดกล้อง</button>
-      </div>
+    <!-- ปุ่มสลับโหมดการทำงาน (แสดงเฉพาะพนักงาน / แอดมิน) -->
+    <div class="seg" id="bb-role-switcher" style="margin-bottom:16px" hidden>
+      <button id="bb-tab-admin-btn" aria-pressed="true">📦 รายการคำขอรับซื้อคืน (คลังพัสดุ) <span class="tab-dot" id="bb-pending-badge" hidden></span></button>
+      <button id="bb-tab-cust-btn" aria-pressed="false">📝 คีย์รับซื้อหน้าร้าน / สร้างคำขอใหม่</button>
     </div>
 
-    <!-- ตารางหนังสือในกล่องพัสดุ -->
-    <div class="card" style="padding:16px;margin-bottom:16px">
-      <h3 style="margin:0 0 10px;font-size:1rem">2. รายการหนังสือในกล่องพัสดุ (<span id="bb-items-count">0</span> เล่ม)</h3>
-      <div id="bb-items-table-wrap">
-        <p class="hint" id="bb-items-empty" style="text-align:center;padding:14px 0">ยังไม่มีหนังสือในกล่องพัสดุ — กรุณาพิมพ์ชื่อหรือเลือกจากประวัติซื้อด้านบน</p>
+    <!-- 1. มุมมองแอดมิน/คลังพัสดุ (Admin Buy Back Panel) -->
+    <div id="bb-admin-view" hidden>
+      <div id="bb-admin-tiles" class="tiles" style="margin-bottom:14px"></div>
+      <div class="seg" id="bb-admin-filter" role="tablist" style="margin-bottom:14px">
+        <button data-bbf="open" aria-pressed="true">ที่ต้องจัดการ</button>
+        <button data-bbf="pending_shipment" aria-pressed="false">รอนำส่ง</button>
+        <button data-bbf="received" aria-pressed="false">ถึงคลังแล้ว</button>
+        <button data-bbf="inspecting" aria-pressed="false">รอตรวจสภาพ</button>
+        <button data-bbf="approved" aria-pressed="false">อนุมัติแล้ว</button>
+        <button data-bbf="all" aria-pressed="false">ทั้งหมด</button>
       </div>
+      <div id="bb-admin-list"></div>
+    </div>
 
-      <!-- กล่องสรุปยอดรับซื้อ -->
-      <div id="bb-summary-box" class="cart-summary-box" style="margin-top:12px" hidden>
-        <div class="sum-row"><span>ยอดราคาอ้างอิงรวม:</span> <span id="bb-sum-ref" class="mono">฿0</span></div>
-        <div class="sum-row" style="color:#6ee7b7"><span>หักค่าเสื่อมและดำเนินการ (30%):</span> <span id="bb-sum-deduct" class="mono">-30%</span></div>
-        <div class="sum-row total" style="color:#34d399">
-          <span>ราคารับซื้อคืนเงินสด (70%):</span> <span id="bb-sum-cash" class="mono">฿0</span>
+    <!-- 2. มุมมองลูกค้า/คีย์สร้างคำขอ (Customer Buy Back Form) -->
+    <div id="bb-customer-view">
+      <!-- กล่องเพิ่มเล่มลงรายการขายคืน -->
+      <div class="card" style="padding:16px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <h3 style="margin:0;font-size:1rem;color:#60a5fa">1. เพิ่มหนังสือที่จะขายคืน</h3>
+          <button class="btn sm ghost" id="btn-open-order-picker" style="font-size:0.78rem">📂 เลือกจากประวัติที่เคยซื้อ</button>
         </div>
-        <div class="sum-row" style="color:#60a5fa;font-size:0.84rem">
-          <span>หรือรับเป็น Store Credit (75% โบนัส +5%):</span> <span id="bb-sum-credit" class="mono">฿0</span>
+
+        <div class="row" style="margin-bottom:8px">
+          <input id="bb-input-isbn" placeholder="พิมพ์ชื่อหนังสือ หรือกรอกรหัส ISBN" style="flex:2">
+          <input id="bb-input-cover" placeholder="ราคาปก (ถ้ามี)" class="mono" inputmode="decimal" style="flex:1">
+          <button class="btn sm" id="btn-bb-add-item" style="flex:none">+ เพิ่มลงกล่อง</button>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+          <button class="btn ghost sm" id="btn-bscan" style="font-size:0.76rem">📷 สแกนสติกเกอร์ร้าน (BK-xxxxxx)</button>
+          <span class="hint" style="margin:0">หรือระบบคำนวณอัตโนมัติหัก 30%</span>
+        </div>
+        <div id="bscanner" hidden class="scanner" style="margin-top:8px">
+          <video id="bscan-video" playsinline muted></video>
+          <button class="btn ghost sm" id="btn-bscan-stop">ปิดกล้อง</button>
         </div>
       </div>
-    </div>
 
-    <!-- ฟอร์มข้อมูลผู้ส่งและช่องทางรับเงิน -->
-    <div class="card" id="bb-sender-form-card" style="padding:16px" hidden>
-      <h3 style="margin:0 0 10px;font-size:1rem">3. ข้อมูลผู้ส่งและช่องทางรับเงิน</h3>
-      <div class="fld-row">
-        <label class="fld">ชื่อผู้ส่ง * <input id="bb-sender-name" placeholder="ชื่อ-นามสกุล"></label>
-        <label class="fld">เบอร์โทรศัพท์ติดต่อ * <input id="bb-sender-phone" placeholder="08x-xxx-xxxx" inputmode="tel"></label>
-      </div>
-      <label class="fld">ที่อยู่ผู้ส่ง (สำหรับส่งคืนกรณีตรวจสภาพไม่ผ่าน) *
-        <textarea id="bb-sender-addr" rows="2" placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด รหัสไปรษณีย์"></textarea>
-      </label>
-      <div class="fld-row">
-        <label class="fld">ช่องทางรับเงิน *
-          <select id="bb-payout-method" class="fld-select">
-            <option value="promptpay">📱 โอนผ่าน PromptPay (เงินสด)</option>
-            <option value="bank">🏦 โอนเข้าบัญชีธนาคาร (เงินสด)</option>
-            <option value="store_credit">🎁 รับเป็น Store Credit ซื้อหนังสือในร้าน (+โบนัส 5%)</option>
-          </select>
-        </label>
-        <label class="fld">เบอร์พร้อมเพย์ / เลขบัญชี *
-          <input id="bb-payout-acc" placeholder="เบอร์โทร / เลขบัตร ปชช. / เลขบัญชี">
-        </label>
-      </div>
-      <label class="fld" id="bb-bank-name-fld" hidden>ชื่อธนาคาร <input id="bb-bank-name" placeholder="เช่น กสิกรไทย, ไทยพาณิชย์"></label>
-      <p class="err-line" id="bb-submit-err" hidden></p>
-      <button class="btn" id="btn-bb-submit" style="width:100%;margin-top:10px">📦 ยืนยันคำขอ & สร้างใบปะหน้าพัสดุ (Shipping Label)</button>
-    </div>
+      <!-- ตารางหนังสือในกล่องพัสดุ -->
+      <div class="card" style="padding:16px;margin-bottom:16px">
+        <h3 style="margin:0 0 10px;font-size:1rem">2. รายการหนังสือในกล่องพัสดุ (<span id="bb-items-count">0</span> เล่ม)</h3>
+        <div id="bb-items-table-wrap">
+          <p class="hint" id="bb-items-empty" style="text-align:center;padding:14px 0">ยังไม่มีหนังสือในกล่องพัสดุ — กรุณาพิมพ์ชื่อหรือเลือกจากประวัติซื้อด้านบน</p>
+        </div>
 
-    <!-- กล่องสำเร็จและลิงก์ใบปะหน้า -->
-    <div id="bb-success-box" class="card" style="padding:20px;text-align:center;border-color:#10b981;background:rgba(16,185,129,0.08)" hidden>
-      <div style="font-size:2rem;margin-bottom:6px">🎉</div>
-      <h3 style="margin:0 0 4px;color:#34d399">สร้างคำขอขายคืนสำเร็จแล้ว!</h3>
-      <p class="hint" style="margin:0 0 12px">รหัสติดตามพัสดุของคุณคือ</p>
-      <div id="bb-success-code" class="mono" style="font-size:1.6rem;font-weight:700;letter-spacing:1px;color:#fff;background:rgba(0,0,0,0.3);padding:8px 16px;border-radius:8px;display:inline-block;margin-bottom:16px"></div>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        <a id="bb-btn-open-label" target="_blank" class="btn" style="text-decoration:none">🖨️ เปิดพิมพ์ใบปะหน้าพัสดุ (Shipping Label)</a>
-        <button class="btn ghost" id="bb-btn-track-new">🚚 ติดตามสถานะคำขอนี้</button>
+        <!-- กล่องสรุปยอดรับซื้อ -->
+        <div id="bb-summary-box" class="cart-summary-box" style="margin-top:12px" hidden>
+          <div class="sum-row"><span>ยอดราคาอ้างอิงรวม:</span> <span id="bb-sum-ref" class="mono">฿0</span></div>
+          <div class="sum-row" style="color:#6ee7b7"><span>หักค่าเสื่อมและดำเนินการ (30%):</span> <span id="bb-sum-deduct" class="mono">-30%</span></div>
+          <div class="sum-row total" style="color:#34d399">
+            <span>ราคารับซื้อคืนเงินสด (70%):</span> <span id="bb-sum-cash" class="mono">฿0</span>
+          </div>
+          <div class="sum-row" style="color:#60a5fa;font-size:0.84rem">
+            <span>หรือรับเป็น Store Credit (75% โบนัส +5%):</span> <span id="bb-sum-credit" class="mono">฿0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ฟอร์มข้อมูลผู้ส่งและช่องทางรับเงิน -->
+      <div class="card" id="bb-sender-form-card" style="padding:16px" hidden>
+        <h3 style="margin:0 0 10px;font-size:1rem">3. ข้อมูลผู้ส่งและช่องทางรับเงิน</h3>
+        <div class="fld-row">
+          <label class="fld">ชื่อผู้ส่ง * <input id="bb-sender-name" placeholder="ชื่อ-นามสกุล"></label>
+          <label class="fld">เบอร์โทรศัพท์ติดต่อ * <input id="bb-sender-phone" placeholder="08x-xxx-xxxx" inputmode="tel"></label>
+        </div>
+        <label class="fld">ที่อยู่ผู้ส่ง (สำหรับส่งคืนกรณีตรวจสภาพไม่ผ่าน) *
+          <textarea id="bb-sender-addr" rows="2" placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด รหัสไปรษณีย์"></textarea>
+        </label>
+        <div class="fld-row">
+          <label class="fld">ช่องทางรับเงิน *
+            <select id="bb-payout-method" class="fld-select">
+              <option value="promptpay">📱 โอนผ่าน PromptPay (เงินสด)</option>
+              <option value="bank">🏦 โอนเข้าบัญชีธนาคาร (เงินสด)</option>
+              <option value="store_credit">🎁 รับเป็น Store Credit ซื้อหนังสือในร้าน (+โบนัส 5%)</option>
+            </select>
+          </label>
+          <label class="fld">เบอร์พร้อมเพย์ / เลขบัญชี *
+            <input id="bb-payout-acc" placeholder="เบอร์โทร / เลขบัตร ปชช. / เลขบัญชี">
+          </label>
+        </div>
+        <label class="fld" id="bb-bank-name-fld" hidden>ชื่อธนาคาร <input id="bb-bank-name" placeholder="เช่น กสิกรไทย, ไทยพาณิชย์"></label>
+        <p class="err-line" id="bb-submit-err" hidden></p>
+        <button class="btn" id="btn-bb-submit" style="width:100%;margin-top:10px">📦 ยืนยันคำขอ & สร้างใบปะหน้าพัสดุ (Shipping Label)</button>
+      </div>
+
+      <!-- กล่องสำเร็จและลิงก์ใบปะหน้า -->
+      <div id="bb-success-box" class="card" style="padding:20px;text-align:center;border-color:#10b981;background:rgba(16,185,129,0.08)" hidden>
+        <div style="font-size:2rem;margin-bottom:6px">🎉</div>
+        <h3 style="margin:0 0 4px;color:#34d399">สร้างคำขอขายคืนสำเร็จแล้ว!</h3>
+        <p class="hint" style="margin:0 0 12px">รหัสติดตามพัสดุของคุณคือ</p>
+        <div id="bb-success-code" class="mono" style="font-size:1.6rem;font-weight:700;letter-spacing:1px;color:#fff;background:rgba(0,0,0,0.3);padding:8px 16px;border-radius:8px;display:inline-block;margin-bottom:16px"></div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <a id="bb-btn-open-label" target="_blank" class="btn" style="text-decoration:none">🖨️ เปิดพิมพ์ใบปะหน้าพัสดุ (Shipping Label)</a>
+          <button class="btn ghost" id="bb-btn-track-new">🚚 ติดตามสถานะคำขอนี้</button>
+        </div>
       </div>
     </div>
   </section>
@@ -1605,7 +1647,8 @@ body.is-customer #customer-nav { display: flex !important; }
     <button role="tab" aria-selected="false" data-tab="stockin">
       <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><path d="M17 15v6M14 18h6"/></svg>ลงสต็อก</button>
     <button role="tab" aria-selected="false" data-tab="buyback">
-      <svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5-9-5z"/><path d="M3 15l9 5 9-5"/></svg>รับซื้อ 30%</button>
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5-9-5z"/><path d="M3 15l9 5 9-5"/></svg>รับซื้อ 30%
+      <span class="tab-dot" id="buyback-badge" hidden></span></button>
     <button role="tab" aria-selected="false" data-tab="orders">
       <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 12h7M9 16h7"/></svg>คำสั่งซื้อ
       <span class="tab-dot" id="orders-badge" hidden></span></button>
@@ -1864,6 +1907,7 @@ get('me').then(me => {
   } else {
     if ($('staff-nav')) $('staff-nav').hidden = false;
     if ($('customer-nav')) $('customer-nav').hidden = true;
+    if (typeof updateBuybackAdminBadge === 'function') updateBuybackAdminBadge();
   }
 }).catch(() => {});
 
@@ -3266,11 +3310,59 @@ $('btn-cart-submit').addEventListener('click', async () => {
 });
 
 /* ============================================================
-   2. ระบบรับซื้อคืน (BUY BACK SYSTEM — หัก 30% & SHIPPING LABEL)
+   2. ระบบรับซื้อคืน (BUY BACK SYSTEM — หัก 30% & ADMIN APPROVAL)
    ============================================================ */
 let BB_ITEMS = [];
+let BB_ADMIN_CACHE = [];
+let bbAdminFilter = 'open';
+let bbActiveSubmode = 'admin'; // 'admin' | 'customer'
+
+const BB_STATUS_MAP = {
+  pending_shipment: { label: 'รอนำส่ง / ระหว่างทาง', cls: 'st-pending_shipment', icon: '🟡' },
+  in_transit: { label: 'พัสดุอยู่ระหว่างนำส่ง', cls: 'st-in_transit', icon: '🚚' },
+  received: { label: 'พัสดุถึงคลังแล้ว', cls: 'st-received', icon: '📦' },
+  inspecting: { label: 'รอตรวจสภาพเล่มจริง', cls: 'st-inspecting', icon: '🔍' },
+  approved: { label: 'อนุมัติแล้ว (เข้าสต็อก)', cls: 'st-approved', icon: '✅' },
+  rejected: { label: 'ปฏิเสธ / ส่งคืน', cls: 'st-rejected', icon: '❌' },
+  price_adjusted: { label: 'ปรับราคาตามสภาพ', cls: 'st-price_adjusted', icon: '⚠️' }
+};
+
+function updateBuybackAdminBadge() {
+  get('buyback/admin-list').then(d => {
+    const n = d.open_count || 0;
+    const b1 = $('buyback-badge');
+    if (b1) { b1.textContent = n > 99 ? '99+' : n; b1.hidden = !n; }
+    const b2 = $('bb-pending-badge');
+    if (b2) { b2.textContent = n > 99 ? '99+' : n; b2.hidden = !n; }
+  }).catch(() => {});
+}
 
 function initBuybackTab() {
+  const isStaff = CURRENT_USER && CURRENT_USER.role === 'staff';
+  const switcher = $('bb-role-switcher');
+  const adminView = $('bb-admin-view');
+  const custView = $('bb-customer-view');
+
+  if (isStaff) {
+    if (switcher) switcher.hidden = false;
+    if (bbActiveSubmode === 'admin') {
+      if (adminView) adminView.hidden = false;
+      if (custView) custView.hidden = true;
+      if ($('bb-tab-admin-btn')) $('bb-tab-admin-btn').setAttribute('aria-pressed', 'true');
+      if ($('bb-tab-cust-btn')) $('bb-tab-cust-btn').setAttribute('aria-pressed', 'false');
+      loadAdminBuybacks();
+    } else {
+      if (adminView) adminView.hidden = true;
+      if (custView) custView.hidden = false;
+      if ($('bb-tab-admin-btn')) $('bb-tab-admin-btn').setAttribute('aria-pressed', 'false');
+      if ($('bb-tab-cust-btn')) $('bb-tab-cust-btn').setAttribute('aria-pressed', 'true');
+    }
+  } else {
+    if (switcher) switcher.hidden = true;
+    if (adminView) adminView.hidden = true;
+    if (custView) custView.hidden = false;
+  }
+
   if (CURRENT_USER) {
     if (!$('bb-sender-name').value && CURRENT_USER.name) $('bb-sender-name').value = CURRENT_USER.name;
     if (!$('bb-sender-phone').value && CURRENT_USER.phone) $('bb-sender-phone').value = CURRENT_USER.phone;
@@ -3278,6 +3370,215 @@ function initBuybackTab() {
   }
   renderBuybackManifest();
 }
+
+async function loadAdminBuybacks() {
+  const container = $('bb-admin-list');
+  if (container) container.innerHTML = '<p class="empty"><span class="spin"></span> กำลังโหลดรายการรับซื้อ...</p>';
+
+  try {
+    const d = await get('buyback/admin-list');
+    BB_ADMIN_CACHE = d.requests || [];
+    const c = d.counts || {};
+    const openCount = d.open_count || 0;
+
+    const b1 = $('buyback-badge');
+    if (b1) { b1.textContent = openCount > 99 ? '99+' : openCount; b1.hidden = !openCount; }
+    const b2 = $('bb-pending-badge');
+    if (b2) { b2.textContent = openCount > 99 ? '99+' : openCount; b2.hidden = !openCount; }
+
+    const tilesEl = $('bb-admin-tiles');
+    if (tilesEl) {
+      tilesEl.innerHTML = `
+        <div class="tile"><p class="k">ที่ต้องจัดการ</p><p class="v" style="color:#60a5fa">${openCount}</p></div>
+        <div class="tile"><p class="k">ถึงคลังแล้ว</p><p class="v" style="color:#fbbf24">${c.received || 0}</p></div>
+        <div class="tile"><p class="k">รอตรวจสภาพ</p><p class="v" style="color:#c084fc">${c.inspecting || 0}</p></div>
+        <div class="tile"><p class="k">อนุมัติแล้ว</p><p class="v" style="color:#34d399">${c.approved || 0}</p></div>
+      `;
+    }
+
+    renderAdminBuybacks();
+  } catch (e) {
+    if (container) container.innerHTML = '<p class="empty" style="color:var(--danger)">เกิดข้อผิดพลาดในการโหลดรายการ</p>';
+  }
+}
+
+function renderAdminBuybacks() {
+  const container = $('bb-admin-list');
+  if (!container) return;
+
+  const rows = BB_ADMIN_CACHE.filter(r => {
+    if (bbAdminFilter === 'all') return true;
+    if (bbAdminFilter === 'open') return ['pending_shipment', 'in_transit', 'received', 'inspecting'].includes(r.status);
+    return r.status === bbAdminFilter;
+  });
+
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="empty">ไม่มีคำขอรับซื้อคืนในหมวดนี้</p>';
+    return;
+  }
+
+  container.innerHTML = `<div class="orders">${rows.map(adminBuybackCardHTML).join('')}</div>`;
+}
+
+function adminBuybackCardHTML(r) {
+  const stInfo = BB_STATUS_MAP[r.status] || { label: r.status, cls: 'st-pending_shipment', icon: '📦' };
+  const items = Array.isArray(r.items) ? r.items : [];
+  const payoutMethodText = r.payout_method === 'store_credit' ? '🎁 Store Credit (+5%)'
+    : r.payout_method === 'promptpay' ? '📱 พร้อมเพย์'
+    : '🏦 บัญชีธนาคาร';
+
+  let actionsHTML = '';
+  if (r.status === 'pending_shipment' || r.status === 'in_transit') {
+    actionsHTML = `
+      <button class="btn sm" onclick="doAdminBuybackAction(${r.id}, 'receive')">📦 รับพัสดุเข้าคลัง</button>
+      <a href="buyback-label?code=${esc(r.tracking_code)}" target="_blank" class="btn sm ghost">🖨️ ใบปะหน้า</a>
+    `;
+  } else if (r.status === 'received') {
+    actionsHTML = `
+      <button class="btn sm" onclick="doAdminBuybackAction(${r.id}, 'inspect')">🔍 เริ่มตรวจสภาพ</button>
+      <a href="buyback-label?code=${esc(r.tracking_code)}" target="_blank" class="btn sm ghost">🖨️ ใบปะหน้า</a>
+    `;
+  } else if (r.status === 'inspecting' || r.status === 'price_adjusted') {
+    actionsHTML = `
+      <button class="btn sm" style="background:#10b981;border-color:#10b981;color:#fff" onclick="doAdminBuybackApprove(${r.id}, '${esc(r.tracking_code)}')">✅ อนุมัติ & รับเข้าสต็อก</button>
+      <button class="btn sm ghost" style="color:#fb923c" onclick="doAdminBuybackAdjust(${r.id}, '${esc(r.tracking_code)}', ${r.total_offer_price})">⚠️ ปรับราคา</button>
+      <button class="btn sm ghost" style="color:#f87171" onclick="doAdminBuybackReject(${r.id}, '${esc(r.tracking_code)}')">❌ ปฏิเสธ/คืนพัสดุ</button>
+      <a href="buyback-label?code=${esc(r.tracking_code)}" target="_blank" class="btn sm ghost">🖨️ ใบปะหน้า</a>
+    `;
+  } else if (r.status === 'approved') {
+    actionsHTML = `
+      <span class="st-badge st-approved" style="font-size:0.8rem">✅ ดำเนินการเสร็จสิ้น (เข้าสต็อกแล้ว)</span>
+      <a href="buyback-label?code=${esc(r.tracking_code)}" target="_blank" class="btn sm ghost">🖨️ ใบปะหน้า</a>
+    `;
+  } else if (r.status === 'rejected') {
+    actionsHTML = `
+      <span class="st-badge st-rejected" style="font-size:0.8rem">❌ ปฏิเสธคำขอเรียบร้อย</span>
+    `;
+  }
+
+  return `
+    <div class="order-row ${stInfo.cls}">
+      <div class="order-main">
+        <div class="order-head">
+          <span class="order-id">${esc(r.tracking_code)}</span>
+          <span class="st-badge ${stInfo.cls}">${stInfo.icon} ${stInfo.label}</span>
+          <span class="meta">${esc((r.created_at || '').slice(0, 16).replace('T', ' '))}</span>
+        </div>
+
+        <p style="margin:6px 0 2px">
+          <b>${esc(r.customer_name || 'ลูกค้า')}</b> · โทร <a href="tel:${esc(r.phone)}" style="color:#60a5fa">${esc(r.phone || '-')}</a>
+        </p>
+
+        <p class="meta">
+          ช่องทางรับเงิน: <b>${payoutMethodText}</b>
+          ${r.payout_account ? `· เลขที่ <span class="mono" style="color:#fff">${esc(r.payout_account)}</span>` : ''}
+          ${r.bank_name ? ` (${esc(r.bank_name)})` : ''}
+        </p>
+
+        <!-- รายการหนังสือในพัสดุ -->
+        <div style="margin:8px 0;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:8px">
+          <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;display:flex;justify-content:space-between">
+            <span>รายการหนังสือ (${items.length} เล่ม)</span>
+            <span>ราคารับซื้อรวม (หัก 30%): <b class="mono" style="color:#34d399;font-size:0.85rem">${baht(r.total_offer_price)}</b></span>
+          </div>
+          ${items.map(it => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:0.82rem;border-top:1px dashed rgba(255,255,255,0.05)">
+              <div>
+                <span>• ${esc(it.title || 'หนังสือ')}</span>
+                ${it.isbn ? `<span class="mono" style="font-size:0.72rem;color:var(--muted);margin-left:4px">(${esc(it.isbn)})</span>` : ''}
+              </div>
+              <div class="mono" style="font-size:0.78rem">
+                <span style="color:var(--muted);text-decoration:line-through;margin-right:6px">${baht(it.ref_price || it.reference_price || 0)}</span>
+                <span style="color:#34d399;font-weight:600">${baht(it.cash_offer || it.offer_price || 0)}</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        ${r.shipping_address ? `<p class="order-addr" style="margin-top:4px">🏠 ที่อยู่ผู้ส่ง: ${esc(r.shipping_address)}</p>` : ''}
+        ${r.admin_note ? `<p class="meta" style="color:#60a5fa;margin-top:4px">📝 บันทึกแอดมิน: ${esc(r.admin_note)}</p>` : ''}
+        ${r.rejection_reason ? `<p class="meta" style="color:#f87171;margin-top:4px">⚠️ หมายเหตุ/เหตุผล: ${esc(r.rejection_reason)}</p>` : ''}
+      </div>
+
+      <div class="order-actions" style="margin-top:6px">
+        ${actionsHTML}
+      </div>
+    </div>
+  `;
+}
+
+window.doAdminBuybackAction = async function(id, action) {
+  try {
+    const res = await post('buyback/admin-action', { id, action });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast(res.message || 'บันทึกสำเร็จ');
+    loadAdminBuybacks();
+  } catch (e) {
+    toast('เกิดข้อผิดพลาดในการทำรายการ', 'error');
+  }
+};
+
+window.doAdminBuybackApprove = async function(id, code) {
+  const shelf = prompt(`ยืนยันการอนุมัติรับซื้อ ${code}\nกรุณาระบุรหัสชั้นวางหนังสือที่จะจัดเก็บ (เช่น A-01-1):`, 'A-01-1');
+  if (shelf === null) return;
+
+  try {
+    const res = await post('buyback/admin-action', {
+      id,
+      action: 'approve',
+      shelf: shelf.trim() || 'A-01-1'
+    });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast(res.message || `อนุมัติ ${code} สำเร็จ!`);
+    loadAdminBuybacks();
+  } catch (e) {
+    toast('เกิดข้อผิดพลาดในการอนุมัติ', 'error');
+  }
+};
+
+window.doAdminBuybackAdjust = async function(id, code, currentOffer) {
+  const input = prompt(`ปรับราคาประเมิน ${code} ตามสภาพหนังสือจริง\nราคาเดิม: ${currentOffer} บาท\nกรอกราคาใหม่:`, currentOffer);
+  if (input === null) return;
+  const newPrice = parseFloat(input);
+  if (isNaN(newPrice) || newPrice < 0) {
+    toast('กรุณาระบุจำนวนเงินที่ถูกต้อง', 'error');
+    return;
+  }
+  const reason = prompt('ระบุเหตุผลในการปรับราคา (เช่น สภาพหนังสือมีตำหนิ ขีดเขียน):', 'ปรับราคาตามสภาพเล่มจริง');
+  if (reason === null) return;
+
+  try {
+    const res = await post('buyback/admin-action', {
+      id,
+      action: 'adjust_price',
+      new_offer_price: newPrice,
+      reason: reason.trim()
+    });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast(res.message || `ปรับราคาเรียบร้อย`);
+    loadAdminBuybacks();
+  } catch (e) {
+    toast('เกิดข้อผิดพลาดในการปรับราคา', 'error');
+  }
+};
+
+window.doAdminBuybackReject = async function(id, code) {
+  const reason = prompt(`ระบุเหตุผลในการปฏิเสธคำขอ ${code} (เพื่อแจ้งให้ลูกค้าทราบ):`, 'สภาพหนังสือไม่ผ่านเกณฑ์รับซื้อ (มีรอยน้ำ/ชำรุด)');
+  if (reason === null) return;
+
+  try {
+    const res = await post('buyback/admin-action', {
+      id,
+      action: 'reject',
+      reason: reason.trim()
+    });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast(res.message || `ปฏิเสธคำขอเรียบร้อย`);
+    loadAdminBuybacks();
+  } catch (e) {
+    toast('เกิดข้อผิดพลาดในการปฏิเสธ', 'error');
+  }
+};
 
 function renderBuybackManifest() {
   const wrap = $('bb-items-table-wrap');
@@ -3511,6 +3812,33 @@ window.pickBookForBuyback = function(title, purchasedPrice) {
   renderBuybackManifest();
   toast(`เลือก "${title}" จากประวัติซื้อเรียบร้อย`);
 };
+
+/* Event listeners for Buy Back Mode Switcher & Admin Filters */
+$('bb-tab-admin-btn')?.addEventListener('click', () => {
+  bbActiveSubmode = 'admin';
+  $('bb-tab-admin-btn').setAttribute('aria-pressed', 'true');
+  $('bb-tab-cust-btn').setAttribute('aria-pressed', 'false');
+  $('bb-admin-view').hidden = false;
+  $('bb-customer-view').hidden = true;
+  loadAdminBuybacks();
+});
+
+$('bb-tab-cust-btn')?.addEventListener('click', () => {
+  bbActiveSubmode = 'customer';
+  $('bb-tab-admin-btn').setAttribute('aria-pressed', 'false');
+  $('bb-tab-cust-btn').setAttribute('aria-pressed', 'true');
+  $('bb-admin-view').hidden = true;
+  $('bb-customer-view').hidden = false;
+});
+
+document.querySelectorAll('#bb-admin-filter button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#bb-admin-filter button').forEach(x => x.setAttribute('aria-pressed', 'false'));
+    b.setAttribute('aria-pressed', 'true');
+    bbAdminFilter = b.dataset.bbf;
+    renderAdminBuybacks();
+  });
+});
 
 /* ============================================================
    3. ระบบติดตามสถานะ (TRACKING SYSTEM)
