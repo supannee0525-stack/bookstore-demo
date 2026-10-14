@@ -3902,7 +3902,10 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0].rstrip("/") or "/"
         if path in ("/webhook/messenger", "/webhook/instagram"):
             raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-            if not fb_valid_signature(raw, self.headers.get("X-Hub-Signature-256"), _cfg("FB_APP_SECRET")):
+            sig = self.headers.get("X-Hub-Signature-256")
+            print(f"[Webhook Meta] Received request on {path}, bytes: {len(raw)}, sig: {sig}", flush=True)
+            if not fb_valid_signature(raw, sig, _cfg("FB_APP_SECRET")):
+                print("[Webhook Meta] Signature mismatch! Check FB_APP_SECRET in .env", flush=True)
                 return self._send(403, {"error": "bad signature"})
             try:
                 data = json.loads(raw)
