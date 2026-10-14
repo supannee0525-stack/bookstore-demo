@@ -3778,6 +3778,161 @@ def fb_send_image(psid, fpath):
     return json.load(urllib.request.urlopen(req, timeout=60))
 
 
+def fb_send_button_template(psid, text, buttons):
+    """ส่งข้อความพร้อมปุ่มกด (Button Template) บน Messenger (text จำกัดไม่เกิน 640 ตัวอักษร)"""
+    payload = {
+        "recipient": {"id": psid},
+        "messaging_type": "RESPONSE",
+        "message": {
+            "attachment": {
+                "type": "template",
+                "payload": {
+                    "template_type": "button",
+                    "text": text[:640],
+                    "buttons": buttons[:3]
+                }
+            }
+        }
+    }
+    return fb_graph_post("/me/messages", payload)
+
+
+def fb_send_book_details(psid, title_id, copy_id=None):
+    """ส่งรายละเอียดหนังสือในแชท: รูปปก + ข้อมูลหนังสือ/เรื่องย่อ + ปุ่มสั่งซื้อใต้ข้อความ"""
+    conn = db()
+    t = conn.execute("SELECT * FROM titles WHERE id=?", (title_id,)).fetchone()
+    if not t:
+        c_row = conn.execute("SELECT * FROM copies WHERE id=?", (title_id,)).fetchone()
+        if c_row:
+            t = conn.execute("SELECT * FROM titles WHERE id=?", (c_row["title_id"],)).fetchone()
+    if not t:
+        conn.close()
+        fb_send(psid, "ขออภัยค่ะ ไม่พบข้อมูลหนังสือเล่มนี้ในระบบ")
+        return
+
+    copies = conn.execute(
+        "SELECT * FROM copies WHERE title_id=? ORDER BY CASE status WHEN 'in_stock' THEN 0 ELSE 1 END, price ASC",
+        (t["id"],)
+    ).fetchall()
+    conn.close()
+
+    # 1. ส่งรูปปกหนังสือในแชท
+    cover_file = t["cover_path"]
+    if not cover_file:
+        f = f"{t['id']}_0.jpg"
+        if (COVERS_DIR / f).is_file():
+            cover_file = f
+    if cover_file and (COVERS_DIR / cover_file).is_file():
+        try:
+            fb_send_image(psid, COVERS_DIR / cover_file)
+        except Exception as err:
+            print(f"fb_send_image error: {err}", file=sys.stderr, flush=True)
+
+    # 2. จัดรูปแบบเนื้อหารายละเอียดหนังสือ
+    title = t["title"]
+    author = (t["author"] or "").strip()
+    publisher = (t["publisher"] or "").strip()
+    year = (t["year"] or "").strip()
+    cover_price = t["cover_price"] or 0
+    synopsis = (t["summary_ai"] or t["synopsis"] or "").strip()
+    review = (t["review_ai"] or "").strip()
+    in_stock = [c for c in copies if c["status"] == "in_stock"]
+
+    lines = [f"📖 {title}"]
+    meta_parts = []
+    if author: meta_parts.append(f"ผู้เขียน: {author}")
+    if publisher: meta_parts.append(f"สำนักพิมพ์: {publisher}")
+    if year: meta_parts.append(f"ปีที่พิมพ์: {year}")
+    if meta_parts:
+        lines.append(" • ".join(meta_parts))
+
+    if cover_price:
+        lines.append(f"💰 ราคาปกเดิม: ฿{cover_price:g}")
+
+    if synopsis:
+        lines.append(f"\n📝 เรื่องย่อ / เนื้อหาสำคัญ:\n{synopsis}")
+
+    if review:
+        lines.append(f"\n🌟 จุดเด่นหน้าร้าน:\n{review}")
+
+    if in_stock:
+        grade_desc = {"A": "สภาพดีมาก/สะสม", "B": "สภาพดี", "C": "อ่านได้/มีร่องรอย"}
+        lines.append("\n📦 สภาพเล่มพร้อมส่งในร้าน:")
+        for c in in_stock[:3]:
+            g = c["grade"]
+            d = grade_desc.get(g, f"เกรด {g}")
+            saving = f" (ประหยัด ฿{cover_price - c['price']:g})" if cover_price and cover_price > c["price"] else ""
+            lines.append(f"• เกรด {g} ({d}) — เพียง ฿{c['price']:g}{saving}")
+    else:
+        lines.append("\n⚠️ ตอนนี้เล่มในสต็อกถูกจองหรือขายแล้วค่ะ ทักแอดมินให้ช่วยหาเล่มเพิ่มได้นะคะ")
+
+    full_text = "\n".join(lines)
+
+    # 3. เตรียมปุ่มสั่งซื้อใต้ข้อความ
+    base_url = "https://ai4you.click/bookstore-demo"
+    buttons = []
+    if in_stock:
+        target_copy = None
+        if copy_id:
+            for c in in_stock:
+                if c["id"] == copy_id:
+                    target_copy = c
+                    break
+        if not target_copy:
+            target_copy = in_stock[0]
+
+        buttons.append({
+            "type": "web_url",
+            "url": f"{base_url}/?buy_copy={target_copy['id']}",
+            "title": f"🛒 สั่งซื้อ ฿{target_copy['price']:g}"[:20]
+        })
+        # ถ้ามีเกรดอื่นที่ราคาต่างกัน เพิ่มปุ่มให้ลูกค้าเลือกเกรด
+        if len(in_stock) > 1 and in_stock[1]["price"] != target_copy["price"]:
+            c2 = in_stock[1]
+            buttons.append({
+                "type": "web_url",
+                "url": f"{base_url}/?buy_copy={c2['id']}",
+                "title": f"🛒 ซื้อเกรด {c2['grade']} ฿{c2['price']:g}"[:20]
+            })
+    else:
+        buttons.append({
+            "type": "web_url",
+            "url": f"{base_url}/",
+            "title": "📚 ดูเล่มอื่นในร้าน"[:20]
+        })
+
+    # 4. ส่งข้อความพร้อมปุ่มสั่งซื้อใต้ข้อความ
+    try:
+        if len(full_text) <= 600:
+            fb_send_button_template(psid, full_text, buttons)
+        else:
+            fb_send(psid, full_text)
+            cta_text = f"🛒 สั่งซื้อ '{title}' ได้ทันที กดปุ่มด้านล่างเพื่อชำระเงินและแจ้งที่อยู่จัดส่งได้เลยค่ะ 👇"
+            fb_send_button_template(psid, cta_text, buttons)
+    except Exception as btn_err:
+        print(f"fb_send_button_template fallback: {btn_err}", file=sys.stderr, flush=True)
+        buy_link = f"{base_url}/?buy_copy={in_stock[0]['id']}" if in_stock else f"{base_url}/"
+        fb_send(psid, full_text + f"\n\n🛒 สั่งซื้อได้ทันทีที่: {buy_link}")
+
+    # 5. บันทึกลงประวัติการสนทนา Omni-Channel
+    try:
+        conn = db()
+        conv = conn.execute("SELECT id FROM omni_conversations WHERE channel='facebook' AND channel_user_id=?", (str(psid),)).fetchone()
+        if conv:
+            conv_id = conv["id"]
+            now_str = now()
+            conn.execute("INSERT INTO omni_messages (conversation_id, sender, sender_type, content, created_at) VALUES (?, 'customer', 'customer', ?, ?)",
+                         (conv_id, f"[กดดูรายละเอียด: {title}]", now_str))
+            conn.execute("INSERT INTO omni_messages (conversation_id, sender, sender_type, content, created_at) VALUES (?, 'assistant', 'ai', ?, ?)",
+                         (conv_id, full_text, now_str))
+            conn.execute("UPDATE omni_conversations SET last_message=?, last_message_at=? WHERE id=?",
+                         (f"รายละเอียด: {title}"[:200], now_str, conv_id))
+            conn.commit()
+        conn.close()
+    except Exception as log_err:
+        print(f"omni log error: {log_err}", file=sys.stderr, flush=True)
+
+
 def fb_send_book_cards(psid, books, max_cards=10):
     """ส่งการ์ดหนังสือแบบ Generic Template Carousel บน Facebook Messenger ให้ลูกค้าเลื่อนดูและกดสั่งซื้อได้ทันที"""
     elements = []
@@ -3819,11 +3974,18 @@ def fb_send_book_cards(psid, books, max_cards=10):
                 "url": buy_url,
                 "title": f"🛒 สั่งซื้อ ฿{price:g}"[:20]
             })
-        buttons.append({
-            "type": "web_url",
-            "url": f"{base_url}/?tab=chat",
-            "title": "📖 ดูรายละเอียด"[:20]
-        })
+        if bid:
+            buttons.append({
+                "type": "postback",
+                "title": "📖 ดูรายละเอียด"[:20],
+                "payload": f"DETAILS_{bid}" + (f"_{cid}" if cid else "")
+            })
+        else:
+            buttons.append({
+                "type": "web_url",
+                "url": f"{base_url}/?tab=chat",
+                "title": "📖 ดูรายละเอียด"[:20]
+            })
 
         el = {
             "title": title,
@@ -3878,33 +4040,76 @@ def fb_handle_event(ev):
     try:
         psid = (ev.get("sender") or {}).get("id")
         msg = ev.get("message") or {}
+        postback = ev.get("postback") or {}
         if not psid or msg.get("is_echo"):
             return
-        text = (msg.get("text") or "").strip()
-        if (ev.get("postback") or {}).get("payload") == "GET_STARTED":
-            fb_send(psid, FB_GREETING)
-            return
-        if not msg:
-            return
-        mid, now = msg.get("mid"), time.time()
+
+        now_ts = time.time()
+        mid = msg.get("mid") or postback.get("mid")
         with _fb_lock:
             if mid and mid in _fb_seen:
                 return
             if mid:
-                _fb_seen[mid] = now
-            for k in [k for k, t in _fb_seen.items() if now - t > 3600]:
+                _fb_seen[mid] = now_ts
+            for k in [k for k, t in _fb_seen.items() if now_ts - t > 3600]:
                 _fb_seen.pop(k, None)
-            times = [t for t in _fb_times.get(psid, []) if now - t < 3600]
+            times = [t for t in _fb_times.get(psid, []) if now_ts - t < 3600]
             limited = len(times) >= FB_MSG_LIMIT
-            times.append(now)
+            times.append(now_ts)
             _fb_times[psid] = times
             hist = _fb_hist.setdefault(psid, [])
         if limited:
             fb_send(psid, "ขอโทษค่ะ ข้อความเยอะเกินไปในชั่วโมงนี้ รบกวนรอพนักงานตอบหรือลองใหม่ภายหลังนะคะ")
             return
+
+        pb_payload = (postback.get("payload") or (msg.get("quick_reply") or {}).get("payload") or "").strip()
+
+        # กรณีปุ่มเริ่มต้นสนทนา
+        if pb_payload == "GET_STARTED":
+            fb_send(psid, FB_GREETING)
+            return
+
+        # -------------------------------------------------------------
+        # ลูกค้ากดปุ่ม "📖 ดูรายละเอียด" จากการ์ดหนังสือในแชท
+        # แสดงรายละเอียดในแชททันที พร้อมรูปหนังสือ และมีปุ่มสั่งซื้อใต้ข้อความ
+        # -------------------------------------------------------------
+        if pb_payload.startswith("DETAILS_"):
+            parts = pb_payload.split("_")
+            title_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+            copy_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+            if title_id:
+                try:
+                    fb_graph_post("/me/messages", {"recipient": {"id": psid}, "sender_action": "typing_on"})
+                except Exception:
+                    pass
+                fb_send_book_details(psid, title_id, copy_id)
+                return
+
+        if not msg and not postback:
+            return
+
+        text = (msg.get("text") or postback.get("title") or "").strip()
         if not text:
             fb_send(psid, "ตอนนี้ตอบได้เฉพาะข้อความตัวอักษรค่ะ พิมพ์ชื่อหนังสือที่สนใจได้เลย")
             return
+
+        # -------------------------------------------------------------
+        # ตรวจจับกรณีลูกค้าพิมพ์ข้อความขอดูรายละเอียดหนังสือโดยตรง
+        # เช่น "ดูรายละเอียด ข้างหลังภาพ", "ขอรายละเอียด นักพนัน", "เรื่องย่อ Atomic Habits"
+        # -------------------------------------------------------------
+        det_m = re.search(r"(?:ดูรายละเอียด|ขอรายละเอียด|รายละเอียด|เรื่องย่อ|ขอดูรูป|ดูรูป|ขอดูเล่ม)\s*(?:เรื่อง|หนังสือ)?\s*(.+)", text, re.IGNORECASE)
+        if det_m:
+            q_name = det_m.group(1).strip().strip("'\"“”")
+            if q_name:
+                matched = _search_titles(q_name, limit=1)
+                if matched:
+                    try:
+                        fb_graph_post("/me/messages", {"recipient": {"id": psid}, "sender_action": "typing_on"})
+                    except Exception:
+                        pass
+                    fb_send_book_details(psid, matched[0]["id"])
+                    return
+
         try:
             fb_graph_post("/me/messages", {"recipient": {"id": psid}, "sender_action": "typing_on"})
         except Exception:
@@ -3999,6 +4204,87 @@ def api_omni_process_message(channel, channel_user_id, user_name, text, media_ur
             "handoff": True,
             "notice": "อยู่ในโหมดเจ้าหน้าที่ดูแล ระบบได้แจ้งเตือนพนักงานแล้วค่ะ"
         }
+
+    # ตรวจสอบการขอดูรายละเอียดหนังสือ (ผ่านปุ่ม DETAILS_{id} หรือพิมพ์ "ดูรายละเอียด...")
+    target_tid = None
+    if text.startswith("DETAILS_"):
+        parts = text.split("_")
+        if len(parts) > 1 and parts[1].isdigit():
+            target_tid = int(parts[1])
+    else:
+        det_m = re.search(r"(?:ดูรายละเอียด|ขอรายละเอียด|รายละเอียด|เรื่องย่อ)\s*(?:เรื่อง|หนังสือ)?\s*(.+)", text, re.IGNORECASE)
+        if det_m:
+            q_name = det_m.group(1).strip().strip("'\"“”")
+            if q_name:
+                matched = _search_titles(q_name, limit=1)
+                if matched:
+                    target_tid = matched[0]["id"]
+
+    if target_tid:
+        t_row = conn.execute("SELECT * FROM titles WHERE id=?", (target_tid,)).fetchone()
+        if t_row:
+            copies_rows = conn.execute("SELECT * FROM copies WHERE title_id=? ORDER BY CASE status WHEN 'in_stock' THEN 0 ELSE 1 END, price ASC", (target_tid,)).fetchall()
+            t_dict = dict(t_row)
+            t_dict["copies"] = [dict(c) for c in copies_rows]
+
+            in_stock = [c for c in copies_rows if c["status"] == "in_stock"]
+            cover_file = t_row["cover_path"]
+            if not cover_file:
+                f = f"{t_row['id']}_0.jpg"
+                if (COVERS_DIR / f).is_file():
+                    cover_file = f
+
+            d_lines = [f"📖 {t_row['title']}"]
+            meta_parts = []
+            if t_row["author"]: meta_parts.append(f"ผู้เขียน: {t_row['author']}")
+            if t_row["publisher"]: meta_parts.append(f"สำนักพิมพ์: {t_row['publisher']}")
+            if t_row["year"]: meta_parts.append(f"ปีที่พิมพ์: {t_row['year']}")
+            if meta_parts:
+                d_lines.append(" • ".join(meta_parts))
+
+            if t_row["cover_price"]:
+                d_lines.append(f"💰 ราคาปกเดิม: ฿{t_row['cover_price']:g}")
+
+            syn = (t_row["summary_ai"] or t_row["synopsis"] or "").strip()
+            if syn:
+                d_lines.append(f"\n📝 เรื่องย่อ / เนื้อหาสำคัญ:\n{syn}")
+
+            rev = (t_row["review_ai"] or "").strip()
+            if rev:
+                d_lines.append(f"\n🌟 จุดเด่นหน้าร้าน:\n{rev}")
+
+            order_links = []
+            base_url = "https://ai4you.click/bookstore-demo"
+            if in_stock:
+                d_lines.append(f"\n📦 สภาพเล่มพร้อมส่งในร้าน:")
+                grade_desc = {"A": "สภาพดีมาก/สะสม", "B": "สภาพดี", "C": "อ่านได้/มีร่องรอย"}
+                for c in in_stock[:3]:
+                    g = c["grade"]
+                    d = grade_desc.get(g, f"เกรด {g}")
+                    saving = f" (ประหยัด ฿{t_row['cover_price'] - c['price']:g})" if t_row["cover_price"] and t_row["cover_price"] > c["price"] else ""
+                    d_lines.append(f"• เกรด {g} ({d}) — เพียง ฿{c['price']:g}{saving}")
+                    order_links.append({"title": t_row["title"], "url": f"{base_url}/?buy_copy={c['id']}", "price": c["price"], "copy_id": c["id"]})
+                d_lines.append(f"\n🛒 กดสั่งซื้อได้ทันทีที่: {base_url}/?buy_copy={in_stock[0]['id']}")
+            else:
+                d_lines.append("\n⚠️ ตอนนี้เล่มในสต็อกถูกจองหรือขายแล้วค่ะ ทักแอดมินเพื่อหาเล่มเพิ่มได้นะคะ")
+
+            d_reply = "\n".join(d_lines)
+            now_reply = now()
+            conn.execute("INSERT INTO omni_messages (conversation_id, sender, sender_type, content, created_at) VALUES (?, 'assistant', 'ai', ?, ?)",
+                         (conv_id, d_reply, now_reply))
+            conn.execute("UPDATE omni_conversations SET last_message=?, last_message_at=? WHERE id=?",
+                         (d_reply[:200], now_reply, conv_id))
+            conn.commit()
+            conn.close()
+            return {
+                "conversation_id": conv_id,
+                "status": "ai_active",
+                "reply": d_reply,
+                "books": [t_dict],
+                "order_links": order_links,
+                "links": [{"label": f"🛒 สั่งซื้อ {t_row['title']}", "url": f"{base_url}/?buy_copy={in_stock[0]['id']}"}] if in_stock else [],
+                "covers": [{"file": cover_file, "title": t_row["title"]}] if cover_file else []
+            }
 
     msg_rows = conn.execute(
         """SELECT sender, sender_type, content FROM omni_messages
