@@ -1251,6 +1251,350 @@ body.is-customer #customer-nav { display: flex !important; }
 .cart-summary-box .sum-row.total { color: #fff; font-size: 1rem; font-weight: 700; border-top: 1px solid var(--line); padding-top: 6px; }
 
 .note { font-size: 0.82rem; color: var(--muted); border-left: 2px solid var(--line-active); padding-left: 12px; margin: 16px 0; }
+
+/* ============ Omni-Channel Console CSS ============ */
+.omni-workspace {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 16px;
+  min-height: 600px;
+  height: calc(100vh - 210px);
+  margin-top: 14px;
+}
+@media (max-width: 900px) {
+  .omni-workspace {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+.omni-sidebar {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.omni-sidebar-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.4);
+}
+.omni-channel-filters {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: none;
+}
+.omni-channel-filters::-webkit-scrollbar { display: none; }
+.omni-filter-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.omni-filter-chip:hover {
+  color: #fff;
+  border-color: var(--line-hover);
+}
+.omni-filter-chip.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+.omni-conv-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.omni-conv-item {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.omni-conv-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.omni-conv-item.active {
+  background: rgba(59, 130, 246, 0.14);
+  border-left: 3px solid var(--accent);
+}
+.omni-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  position: relative;
+  flex-shrink: 0;
+}
+.channel-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  border: 2px solid var(--ground);
+}
+.badge-facebook { background: #1877f2; color: #fff; }
+.badge-line { background: #06c755; color: #fff; }
+.badge-instagram { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); color: #fff; }
+.badge-tiktok { background: #000; color: #00f2fe; border-color: #fe2c55; }
+.badge-web { background: #3b82f6; color: #fff; }
+
+.omni-conv-meta {
+  flex: 1;
+  min-width: 0;
+}
+.omni-conv-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+}
+.omni-cust-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.omni-time {
+  font-size: 0.72rem;
+  color: var(--muted-2);
+  flex-shrink: 0;
+}
+.omni-conv-snippet {
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.omni-conv-tags {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.status-pill {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.pill-ai { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+.pill-human { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.5); }
+.pill-resolved { background: rgba(52, 211, 153, 0.2); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.4); }
+
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-left: auto;
+}
+
+/* Thread Window */
+.omni-thread {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.omni-thread-header {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.5);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.omni-thread-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.omni-thread-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.omni-messages-box {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgba(8, 12, 21, 0.4);
+}
+.omni-bubble-row {
+  display: flex;
+  flex-direction: column;
+  max-width: 82%;
+}
+.bubble-row-customer {
+  align-self: flex-start;
+}
+.bubble-row-assistant, .bubble-row-staff {
+  align-self: flex-end;
+}
+.omni-bubble-sender {
+  font-size: 0.72rem;
+  color: var(--muted-2);
+  margin-bottom: 3px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.bubble-row-assistant .omni-bubble-sender {
+  justify-content: flex-end;
+  color: #60a5fa;
+}
+.bubble-row-staff .omni-bubble-sender {
+  justify-content: flex-end;
+  color: #34d399;
+}
+.omni-bubble {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.bubble-customer {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-bottom-left-radius: 2px;
+}
+.bubble-assistant {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.75), rgba(15, 23, 42, 0.85));
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  color: #fff;
+  border-bottom-right-radius: 2px;
+}
+.bubble-staff {
+  background: linear-gradient(135deg, rgba(6, 78, 59, 0.75), rgba(15, 23, 42, 0.85));
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #fff;
+  border-bottom-right-radius: 2px;
+}
+.omni-bubble-meta {
+  font-size: 0.7rem;
+  opacity: 0.65;
+  margin-top: 4px;
+  text-align: right;
+}
+.omni-book-attach {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.omni-order-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: var(--accent-grad);
+  color: #fff !important;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+.omni-order-link-btn:hover {
+  filter: brightness(1.1);
+}
+.omni-valuation-card {
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px dashed rgba(245, 158, 11, 0.4);
+  border-radius: 8px;
+}
+.omni-thread-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.7);
+}
+.omni-quick-replies {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+.omni-quick-chip {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.omni-quick-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.omni-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.omni-input-row textarea {
+  flex: 1;
+  min-height: 44px;
+  max-height: 120px;
+  resize: vertical;
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.88rem;
+}
+.omni-input-row textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
 </style>
 </head>
 <body>
@@ -1711,6 +2055,81 @@ body.is-customer #customer-nav { display: flex !important; }
     <div id="stats"></div>
   </section>
 
+  <!-- ============ Omni-Channel Inbox & Customer Service Assistant ============ -->
+  <section id="tab-omni" hidden>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h2>🤖 Omni-Channel AI Chatbot & Customer Service Assistant</h2>
+        <p class="hint">ศูนย์รวมแชทจาก Facebook, LINE OA, Instagram, TikTok Shop และ Web พร้อมระบบ AI ตรวจสต็อก, ประเมินรับซื้อ 30%, และ Human Handoff</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost sm" id="btn-omni-refresh">🔄 รีเฟรช</button>
+        <button class="btn sm" id="btn-open-sim" style="background:var(--accent-grad);color:#fff">⚡ จำลองแชททดสอบ (Simulator)</button>
+      </div>
+    </div>
+
+    <!-- Summary Metrics -->
+    <div class="tiles" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 14px 0 6px">
+      <div class="tile">
+        <div class="label">บทสนทนาทั้งหมด</div>
+        <div class="val" id="omni-stat-total">0</div>
+        <small class="hint">รวม 5 ช่องทาง</small>
+      </div>
+      <div class="tile">
+        <div class="label">AI ตอบกลับอัตโนมัติ</div>
+        <div class="val" id="omni-stat-ai" style="color:#60a5fa">0</div>
+        <small class="hint">พร้อม Instant Order Link</small>
+      </div>
+      <div class="tile" style="border-color:rgba(245,158,11,0.4);background:rgba(245,158,11,0.06)">
+        <div class="label" style="color:#fbbf24">🙋‍♂️ รอพนักงานดูแล (Handoff)</div>
+        <div class="val" id="omni-stat-handoff" style="color:#fbbf24">0</div>
+        <small class="hint">ลูกค้าขอคุยกับคน / ร้องเรียน</small>
+      </div>
+      <div class="tile">
+        <div class="label">ความเร็วประมวลผลเฉลี่ย</div>
+        <div class="val" style="color:#34d399">&lt; 1.2s</div>
+        <small class="hint">AI Stock & Valuation Engine</small>
+      </div>
+    </div>
+
+    <!-- Workspace -->
+    <div class="omni-workspace">
+      <!-- Left Sidebar: Conversations -->
+      <div class="omni-sidebar">
+        <div class="omni-sidebar-header">
+          <!-- Channel Filters -->
+          <div class="omni-channel-filters" id="omni-channel-filter">
+            <button class="omni-filter-chip active" data-channel="all">ทั้งหมด</button>
+            <button class="omni-filter-chip" data-channel="facebook">📘 FB Messenger</button>
+            <button class="omni-filter-chip" data-channel="line">🟢 LINE OA</button>
+            <button class="omni-filter-chip" data-channel="instagram">📸 Instagram</button>
+            <button class="omni-filter-chip" data-channel="tiktok">🎵 TikTok</button>
+            <button class="omni-filter-chip" data-channel="web">🌐 Web Chat</button>
+          </div>
+          <!-- Status Filters -->
+          <div style="display:flex;gap:4px;margin-top:6px" id="omni-status-filter">
+            <button class="omni-filter-chip active" data-status="all">ทุกสถานะ</button>
+            <button class="omni-filter-chip" data-status="human_agent">🙋‍♂️ รอพนักงาน</button>
+            <button class="omni-filter-chip" data-status="ai_active">🤖 AI ดูแล</button>
+          </div>
+        </div>
+        <!-- Conversation List -->
+        <div class="omni-conv-list" id="omni-conv-list">
+          <div style="padding:24px;text-align:center;color:var(--muted)">กำลังโหลดบทสนทนา...</div>
+        </div>
+      </div>
+
+      <!-- Right Column: Active Thread -->
+      <div class="omni-thread" id="omni-thread">
+        <div style="padding:48px 20px;text-align:center;color:var(--muted)">
+          <div style="font-size:2.5rem;margin-bottom:10px">💬</div>
+          <h3>เลือกลูกค้าจากรายการด้านซ้ายเพื่อเปิดแชท</h3>
+          <p class="hint">หรือกดปุ่ม &quot;⚡ จำลองแชททดสอบ&quot; เพื่อทดสอบการทำงานของระบบ AI Chatbot</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- แถบนำทางสำหรับพนักงาน (Staff Nav) -->
@@ -1728,6 +2147,9 @@ body.is-customer #customer-nav { display: flex !important; }
     <button role="tab" aria-selected="false" data-tab="orders">
       <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 12h7M9 16h7"/></svg>คำสั่งซื้อ
       <span class="tab-dot" id="orders-badge" hidden></span></button>
+    <button role="tab" aria-selected="false" data-tab="omni">
+      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>Omni-Chat
+      <span class="tab-dot" id="omni-badge" hidden></span></button>
     <button role="tab" aria-selected="false" data-tab="stats">
       <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>ภาพรวม</button>
   </div>
@@ -1883,6 +2305,49 @@ body.is-customer #customer-nav { display: flex !important; }
     <p class="hint">เลือกหนังสือที่เคยซื้อไป เพื่อคำนวณราคาขายคืนหัก 30% จากราคาที่เคยซื้อจริง</p>
     <div id="order-pick-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
   </div>
+<!-- กล่องจำลองแชท Omni-Channel Simulator Modal -->
+<div id="modal-omni-sim-box" hidden>
+  <div class="sticker-panel edit-panel" style="max-width:560px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">⚡ จำลองข้อความลูกค้า (Omni-Channel Simulator)</h3>
+      <button class="btn ghost sm" id="btn-close-sim" style="padding:4px 10px">ปิด ✕</button>
+    </div>
+    <p class="hint">ทดสอบฟังก์ชัน AI สต็อก, ลิงก์สั่งซื้อทันที, ประเมินราคาขายคืน 30%, และระบบโอนสายพนักงาน (Human Handoff) โดยไม่ต้องต่อ API ภายนอก</p>
+
+    <div class="fld-row" style="margin-top:12px">
+      <label class="fld">ช่องทางต้นทาง
+        <select id="sim-channel">
+          <option value="line">🟢 LINE Official Account</option>
+          <option value="facebook">📘 Facebook Messenger</option>
+          <option value="instagram">📸 Instagram Direct Message</option>
+          <option value="tiktok">🎵 TikTok Shop Message</option>
+          <option value="web">🌐 Web Chat Widget</option>
+        </select>
+      </label>
+      <label class="fld">ชื่อลูกค้าจำลอง
+        <input id="sim-user-name" value="คุณกานต์ (ลูกค้าทดสอบ)">
+      </label>
+    </div>
+
+    <label class="fld" style="margin-top:8px">เลือกตัวอย่างคำถามยอดฮิต (Presets)
+      <select id="sim-preset">
+        <option value="">-- เลือกเหตุการณ์ทดสอบ --</option>
+        <option value="stock">🔍 ตรวจสต็อก: &quot;มีหนังสือ คิดให้รวย ไหมคะ ขอราคาด้วย&quot; (ทดสอบ AI เช็คสต็อก + Instant Order Link)</option>
+        <option value="buyback">📦 ประเมินรับซื้อ 30%: &quot;รับซื้อหนังสือ Atomic Habits ไหมคะ ได้กี่บาท&quot; (ทดสอบสูตร 30% + หักสภาพ + ลิงก์ใบปะหน้า)</option>
+        <option value="recommend">💡 แนะนำหนังสือ: &quot;อยากได้หนังสือพัฒนาตัวเองหรือจิตวิทยาอ่านง่ายๆ แนะนำหน่อยค่ะ&quot;</option>
+        <option value="handoff">🙋‍♂️ โอนสายพนักงาน: &quot;มีปัญหาเรื่องหนังสือจัดส่งช้า ขอคุยกับพนักงานหน่อยค่ะ ร้องเรียน&quot; (ทดสอบ Human Handoff Alert)</option>
+      </select>
+    </label>
+
+    <label class="fld" style="margin-top:8px">ข้อความที่ส่งเข้าแชท
+      <textarea id="sim-text" rows="3" placeholder="พิมพ์ข้อความที่ต้องการทดสอบ..."></textarea>
+    </label>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button class="btn ghost sm" id="btn-sim-cancel">ยกเลิก</button>
+      <button class="btn sm" id="btn-sim-send" style="background:var(--accent-grad);color:#fff">🚀 ส่งข้อความจำลองและประมวลผล</button>
+    </div>
+  </div>
 </div>
 
 <div id="sticker-print-host"></div>
@@ -1991,7 +2456,7 @@ get('me').then(me => {
 function switchTab(tabId) {
   document.querySelectorAll('nav button').forEach(x =>
     x.setAttribute('aria-selected', String(x.dataset.tab === tabId)));
-  const allTabs = ['search', 'stock', 'stockin', 'buyback', 'orders', 'stats', 'tracking', 'account'];
+  const allTabs = ['search', 'stock', 'stockin', 'buyback', 'orders', 'stats', 'tracking', 'account', 'omni'];
   allTabs.forEach(t => {
     const el = $('tab-' + t);
     if (el) el.hidden = (t !== tabId);
@@ -1999,6 +2464,7 @@ function switchTab(tabId) {
   if (tabId === 'stats') loadStats();
   if (tabId === 'orders') loadOrders();
   if (tabId === 'stock') loadStock();
+  if (tabId === 'omni') loadOmni();
   if (tabId === 'account') loadAccountPage();
   if (tabId === 'buyback') initBuybackTab();
   if (tabId !== 'stockin' && typeof stopScan === 'function') stopScan();
@@ -4457,6 +4923,410 @@ window.saveCustomerProfile = async function() {
 };
 
 refreshOrderBadge();
+
+/* ============ Omni-Channel Console Logic ============ */
+let omniChannelFilter = 'all';
+let omniStatusFilter = 'all';
+let activeOmniConvId = null;
+let omniConversations = [];
+
+function updateOmniBadge(n) {
+  const el = $('omni-badge');
+  if (!el) return;
+  el.textContent = n > 99 ? '99+' : (n > 0 ? n : '');
+  el.hidden = !n;
+}
+
+async function refreshOmniBadge() {
+  try {
+    const d = await get('omni/conversations');
+    const badgeCount = (d.handoff_count || 0) + (d.total_unread || 0);
+    updateOmniBadge(badgeCount);
+  } catch (e) {}
+}
+
+function getChannelMeta(ch) {
+  switch (ch) {
+    case 'facebook': return { name: 'Facebook Messenger', badgeClass: 'badge-facebook', icon: 'FB', emoji: '📘' };
+    case 'line': return { name: 'LINE Official Account', badgeClass: 'badge-line', icon: 'LN', emoji: '🟢' };
+    case 'instagram': return { name: 'Instagram DM', badgeClass: 'badge-instagram', icon: 'IG', emoji: '📸' };
+    case 'tiktok': return { name: 'TikTok Shop', badgeClass: 'badge-tiktok', icon: 'TT', emoji: '🎵' };
+    default: return { name: 'Web Chat', badgeClass: 'badge-web', icon: 'WB', emoji: '🌐' };
+  }
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diffSec < 60) return 'เมื่อครู่';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} น. ที่แล้ว`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} ชม. ที่แล้ว`;
+  return d.toLocaleDateString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadOmni() {
+  try {
+    const d = await get(`omni/conversations?channel=${omniChannelFilter}&status=${omniStatusFilter}`);
+    omniConversations = d.conversations || [];
+    
+    // Update summary metrics
+    if ($('omni-stat-total')) $('omni-stat-total').textContent = omniConversations.length;
+    const aiCount = omniConversations.filter(c => c.status === 'ai_active').length;
+    if ($('omni-stat-ai')) $('omni-stat-ai').textContent = aiCount;
+    if ($('omni-stat-handoff')) $('omni-stat-handoff').textContent = d.handoff_count || 0;
+    
+    updateOmniBadge((d.handoff_count || 0) + (d.total_unread || 0));
+    renderOmniConversations();
+    
+    if (activeOmniConvId) {
+      loadOmniMessages(activeOmniConvId, false);
+    } else if (omniConversations.length > 0) {
+      openOmniThread(omniConversations[0].id);
+    }
+  } catch (e) {
+    if ($('omni-conv-list')) $('omni-conv-list').innerHTML = '<div style="padding:20px;text-align:center;color:#f87171">โหลดบทสนทนาไม่สำเร็จ</div>';
+  }
+}
+
+function renderOmniConversations() {
+  const host = $('omni-conv-list');
+  if (!host) return;
+  if (!omniConversations.length) {
+    host.innerHTML = '<div style="padding:32px 14px;text-align:center;color:var(--muted)">ไม่มีบทสนทนาในหมวดนี้</div>';
+    return;
+  }
+  
+  host.innerHTML = omniConversations.map(c => {
+    const meta = getChannelMeta(c.channel);
+    const initial = (c.customer_name || 'C').charAt(0).toUpperCase();
+    const isActive = c.id === activeOmniConvId;
+    
+    let statusPill = '';
+    if (c.status === 'human_agent') {
+      statusPill = '<span class="status-pill pill-human">🙋‍♂️ รอพนักงาน</span>';
+    } else if (c.status === 'resolved') {
+      statusPill = '<span class="status-pill pill-resolved">✅ เรียบร้อย</span>';
+    } else {
+      statusPill = '<span class="status-pill pill-ai">🤖 AI ดูแล</span>';
+    }
+    
+    const unreadDot = c.unread_count > 0 ? `<span class="unread-dot" title="${c.unread_count} ข้อความใหม่"></span>` : '';
+    
+    return `
+      <div class="omni-conv-item ${isActive ? 'active' : ''}" onclick="openOmniThread(${c.id})">
+        <div class="omni-avatar">
+          ${esc(initial)}
+          <span class="channel-badge ${meta.badgeClass}" title="${meta.name}">${meta.icon}</span>
+        </div>
+        <div class="omni-conv-meta">
+          <div class="omni-conv-top">
+            <span class="omni-cust-name">${esc(c.customer_name || 'ลูกค้า')}</span>
+            <span class="omni-time">${timeAgo(c.last_message_at)}</span>
+          </div>
+          <div class="omni-conv-snippet">${esc(c.last_message || 'ไม่มีข้อความ')}</div>
+          <div class="omni-conv-tags">
+            ${statusPill}
+            ${unreadDot}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function openOmniThread(convId) {
+  activeOmniConvId = convId;
+  renderOmniConversations();
+  await loadOmniMessages(convId, true);
+}
+
+async function loadOmniMessages(convId, scrollBottom) {
+  const host = $('omni-thread');
+  if (!host) return;
+  
+  try {
+    const d = await get(`omni/messages?conversation_id=${convId}`);
+    if (d.error) {
+      host.innerHTML = `<div style="padding:20px;text-align:center;color:#f87171">${esc(d.error)}</div>`;
+      return;
+    }
+    
+    const c = d.conversation;
+    const msgs = d.messages || [];
+    const meta = getChannelMeta(c.channel);
+    
+    let statusText = '';
+    let statusBadge = '';
+    let toggleBtnText = '';
+    let nextStatus = '';
+    
+    if (c.status === 'human_agent') {
+      statusBadge = '<span class="status-pill pill-human">🙋‍♂️ โหมดพนักงานดูแล (AI หยุดชั่วคราว)</span>';
+      toggleBtnText = '🤖 สลับให้ AI ดูแลต่อ';
+      nextStatus = 'ai_active';
+    } else if (c.status === 'resolved') {
+      statusBadge = '<span class="status-pill pill-resolved">✅ จบการสนทนาแล้ว</span>';
+      toggleBtnText = '🤖 เปิด AI ดูแลใหม่';
+      nextStatus = 'ai_active';
+    } else {
+      statusBadge = '<span class="status-pill pill-ai">🤖 โหมด AI อัตโนมัติ</span>';
+      toggleBtnText = '🙋‍♂️ รับช่วงต่อ (โหมดพนักงาน)';
+      nextStatus = 'human_agent';
+    }
+    
+    const messagesHTML = msgs.map(m => {
+      const isCust = m.sender === 'customer';
+      const isStaff = m.sender === 'staff';
+      const rowClass = isCust ? 'bubble-row-customer' : (isStaff ? 'bubble-row-staff' : 'bubble-row-assistant');
+      const bubbleClass = isCust ? 'bubble-customer' : (isStaff ? 'bubble-staff' : 'bubble-assistant');
+      
+      let senderLabel = '';
+      if (isCust) senderLabel = `👤 ${esc(c.customer_name || 'ลูกค้า')}`;
+      else if (isStaff) senderLabel = `👨‍💼 พนักงานร้าน (Staff)`;
+      else senderLabel = `🤖 Ava (AI Assistant)`;
+      
+      let attachHTML = '';
+      const payload = m.payload;
+      if (payload) {
+        if (payload.books && payload.books.length > 0) {
+          attachHTML += `
+            <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+              ${payload.books.map(b => `
+                <div class="omni-book-attach">
+                  ${b.cover_path ? `<img src="api/cover/${encodeURIComponent(b.cover_path)}" style="width:36px;height:48px;object-fit:cover;border-radius:4px">` : ''}
+                  <div style="flex:1;min-width:0;font-size:0.8rem">
+                    <b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</b>
+                    <span style="color:var(--muted)">${esc(b.author || '')}</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }
+        
+        if (payload.order_links && payload.order_links.length > 0) {
+          attachHTML += `
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+              ${payload.order_links.map(ol => `
+                <a href="${ol.url}" target="_blank" class="omni-order-link-btn">
+                  🛒 สั่งซื้อทันที ${baht(ol.price)} (ส่งลิงก์ให้ลูกค้า)
+                </a>
+              `).join('')}
+            </div>
+          `;
+        }
+        
+        if (payload.links && payload.links.length > 0) {
+          attachHTML += `
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+              ${payload.links.map(l => `
+                <a href="${l.url}" target="_blank" class="omni-order-link-btn" style="background:linear-gradient(135deg, #10b981, #059669)">
+                  📦 ${esc(l.label || 'ลิงก์ระบบ')}
+                </a>
+              `).join('')}
+            </div>
+          `;
+        }
+      }
+      
+      return `
+        <div class="omni-bubble-row ${rowClass}">
+          <div class="omni-bubble-sender">${senderLabel}</div>
+          <div class="omni-bubble ${bubbleClass}">
+            <div>${esc(m.content).replace(/\n/g, '<br>')}</div>
+            ${attachHTML}
+            <div class="omni-bubble-meta">${timeAgo(m.created_at)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    host.innerHTML = `
+      <div class="omni-thread-header">
+        <div class="omni-thread-user">
+          <div class="omni-avatar" style="width:36px;height:36px;font-size:1rem">
+            ${esc((c.customer_name || 'C').charAt(0).toUpperCase())}
+            <span class="channel-badge ${meta.badgeClass}" style="width:15px;height:15px;font-size:8px">${meta.icon}</span>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:0.95rem;color:#fff">${esc(c.customer_name || 'ลูกค้า')} <small style="color:var(--muted);font-weight:400">(${meta.name})</small></div>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:2px">
+              ${statusBadge}
+              <small class="mono" style="color:var(--muted-2);font-size:0.75rem">ID: ${esc(c.channel_user_id || c.id)}</small>
+            </div>
+          </div>
+        </div>
+        <div class="omni-thread-actions">
+          <button class="btn ghost sm" onclick="toggleOmniStatus(${c.id}, '${nextStatus}')">${toggleBtnText}</button>
+          <button class="btn ghost sm" onclick="toggleOmniStatus(${c.id}, 'resolved')">✅ ปิดเคส</button>
+        </div>
+      </div>
+      
+      <div class="omni-messages-box" id="omni-msg-box">
+        ${messagesHTML.length ? messagesHTML : '<div style="text-align:center;color:var(--muted);padding:30px">ยังไม่มีข้อความในประวัติ</div>'}
+      </div>
+      
+      <div class="omni-thread-footer">
+        <div class="omni-quick-replies">
+          <span class="omni-quick-chip" onclick="insertOmniQuickReply('สวัสดีค่ะ มีหนังสือเล่มนี้พร้อมส่ง สภาพสวยกริบค่ะ 📦')">📦 มีพร้อมส่ง</span>
+          <span class="omni-quick-chip" onclick="insertOmniQuickReply('ทางร้านรับซื้อคืน 30% ค่ะ ลูกค้าสร้างใบปะหน้าส่งเข้าคลังได้เลยนะคะ ✨')">💰 รับซื้อ 30%</span>
+          <span class="omni-quick-chip" onclick="insertOmniQuickReply('จัดส่งรอบวันพรุ่งนี้เช้า ถึงมือภายใน 1-2 วันทำการค่ะ 🚚')">🚚 รอบจัดส่ง</span>
+          <span class="omni-quick-chip" onclick="insertOmniQuickReply('รับเรื่องเรียบร้อยค่ะ พี่พนักงานกำลังตรวจสอบสต็อกให้สักครู่นะคะ 🙏')">🙏 รับเรื่องแล้ว</span>
+        </div>
+        <div class="omni-input-row">
+          <textarea id="omni-staff-input" placeholder="พิมพ์ข้อความตอบกลับในฐานะพนักงานร้าน... (กด Enter เพื่อส่ง, Shift+Enter ขึ้นบรรทัดใหม่)"></textarea>
+          <button class="btn sm" id="btn-omni-send" onclick="sendOmniReply()" style="background:var(--accent-grad);color:#fff;height:44px;padding:0 18px">ส่ง</button>
+        </div>
+      </div>
+    `;
+    
+    const inputEl = $('omni-staff-input');
+    if (inputEl) {
+      inputEl.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendOmniReply();
+        }
+      });
+      inputEl.focus();
+    }
+    
+    if (scrollBottom) {
+      const box = $('omni-msg-box');
+      if (box) box.scrollTop = box.scrollHeight;
+    }
+  } catch (e) {
+    host.innerHTML = `<div style="padding:20px;text-align:center;color:#f87171">โหลดข้อความไม่สำเร็จ</div>`;
+  }
+}
+
+function insertOmniQuickReply(text) {
+  const el = $('omni-staff-input');
+  if (!el) return;
+  el.value = text;
+  el.focus();
+}
+
+async function sendOmniReply() {
+  const el = $('omni-staff-input');
+  if (!el || !activeOmniConvId) return;
+  const content = el.value.trim();
+  if (!content) return;
+  
+  el.disabled = true;
+  if ($('btn-omni-send')) $('btn-omni-send').disabled = true;
+  
+  try {
+    const r = await post('omni/reply', { conversation_id: activeOmniConvId, content });
+    if (r.error) {
+      toast(r.error, 'error');
+    } else {
+      el.value = '';
+      await loadOmniMessages(activeOmniConvId, true);
+      const d = await get(`omni/conversations?channel=${omniChannelFilter}&status=${omniStatusFilter}`);
+      omniConversations = d.conversations || [];
+      renderOmniConversations();
+    }
+  } catch (e) {
+    toast('ส่งข้อความไม่สำเร็จ', 'error');
+  } finally {
+    if (el) el.disabled = false;
+    if ($('btn-omni-send')) $('btn-omni-send').disabled = false;
+    if (el) el.focus();
+  }
+}
+
+async function toggleOmniStatus(convId, status) {
+  try {
+    const r = await post('omni/toggle-status', { conversation_id: convId, status });
+    if (r.error) {
+      toast(r.error, 'error');
+      return;
+    }
+    toast(`อัปเดตสถานะเป็น ${status === 'human_agent' ? 'โหมดพนักงาน' : (status === 'resolved' ? 'ปิดเคส' : 'โหมด AI')} แล้ว`);
+    await loadOmni();
+  } catch (e) {
+    toast('เปลี่ยนสถานะไม่สำเร็จ', 'error');
+  }
+}
+
+$('omni-channel-filter')?.addEventListener('click', e => {
+  const b = e.target.closest('button[data-channel]');
+  if (!b) return;
+  omniChannelFilter = b.dataset.channel;
+  $('omni-channel-filter').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+  loadOmni();
+});
+
+$('omni-status-filter')?.addEventListener('click', e => {
+  const b = e.target.closest('button[data-status]');
+  if (!b) return;
+  omniStatusFilter = b.dataset.status;
+  $('omni-status-filter').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+  loadOmni();
+});
+
+$('btn-omni-refresh')?.addEventListener('click', () => {
+  loadOmni();
+  toast('รีเฟรชข้อมูล Omni-Channel แล้ว');
+});
+
+$('btn-open-sim')?.addEventListener('click', () => {
+  if ($('modal-omni-sim-box')) $('modal-omni-sim-box').hidden = false;
+  if ($('sim-text')) $('sim-text').focus();
+});
+$('btn-close-sim')?.addEventListener('click', () => {
+  if ($('modal-omni-sim-box')) $('modal-omni-sim-box').hidden = true;
+});
+$('btn-sim-cancel')?.addEventListener('click', () => {
+  if ($('modal-omni-sim-box')) $('modal-omni-sim-box').hidden = true;
+});
+
+$('sim-preset')?.addEventListener('change', () => {
+  const v = $('sim-preset').value;
+  const t = $('sim-text');
+  if (!t) return;
+  if (v === 'stock') t.value = 'มีหนังสือ คิดให้รวย ไหมคะ ขอราคาและสภาพด้วยค่ะ';
+  else if (v === 'buyback') t.value = 'รับซื้อหนังสือ Atomic Habits ไหมคะ ได้กี่บาท สภาพเกรด A ค่ะ';
+  else if (v === 'recommend') t.value = 'อยากได้หนังสือแนวพัฒนาตัวเองหรือจิตวิทยาอ่านง่ายๆ แนะนำหน่อยค่ะ';
+  else if (v === 'handoff') t.value = 'มีปัญหาเรื่องคำสั่งซื้อจัดส่งช้า ขอคุยกับพนักงานหน่อยค่ะ ร้องเรียน';
+});
+
+$('btn-sim-send')?.addEventListener('click', async () => {
+  const channel = $('sim-channel').value;
+  const user_name = $('sim-user-name').value.trim() || 'ลูกค้าจำลอง';
+  const text = $('sim-text').value.trim();
+  if (!text) {
+    toast('กรุณาระบุข้อความที่ต้องการทดสอบ', 'error');
+    return;
+  }
+  
+  $('btn-sim-send').disabled = true;
+  $('btn-sim-send').textContent = 'กำลังประมวลผล...';
+  
+  try {
+    const r = await post('omni/simulate', { channel, user_name, text });
+    if (r.error) {
+      toast(r.error, 'error');
+    } else {
+      toast(`ส่งข้อความจำลองจาก ${getChannelMeta(channel).name} สำเร็จ!`);
+      if ($('modal-omni-sim-box')) $('modal-omni-sim-box').hidden = true;
+      if (r.result && r.result.conversation_id) {
+        activeOmniConvId = r.result.conversation_id;
+      }
+      await loadOmni();
+    }
+  } catch (e) {
+    toast('จำลองข้อความไม่สำเร็จ', 'error');
+  } finally {
+    $('btn-sim-send').disabled = false;
+    $('btn-sim-send').textContent = '🚀 ส่งข้อความจำลองและประมวลผล';
+  }
+});
+
+refreshOmniBadge();
+setInterval(refreshOmniBadge, 30000);
 
 </script>
 </body>

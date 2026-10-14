@@ -316,6 +316,87 @@ def init_db():
                  "method TEXT NOT NULL, status TEXT NOT NULL, payload TEXT,"
                  "created_at TEXT NOT NULL, paid_at TEXT)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pay_order ON payments(order_id)")
+
+    # ระบบ AI บริการลูกค้า Omni-Channel (Facebook Messenger, LINE OA, Instagram DM, TikTok Shop, Web)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS omni_conversations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel TEXT NOT NULL,
+        channel_user_id TEXT NOT NULL,
+        user_name TEXT,
+        user_avatar TEXT,
+        status TEXT NOT NULL DEFAULT 'ai',
+        last_message TEXT,
+        last_message_at TEXT NOT NULL,
+        unread_count INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        UNIQUE(channel, channel_user_id)
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_omni_conv_channel ON omni_conversations(channel, channel_user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_omni_conv_status ON omni_conversations(status)")
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS omni_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id INTEGER NOT NULL REFERENCES omni_conversations(id),
+        sender_type TEXT NOT NULL,
+        content TEXT NOT NULL,
+        media_url TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_omni_msg_conv ON omni_messages(conversation_id)")
+
+    have_conv = {r["name"] for r in conn.execute("PRAGMA table_info(omni_conversations)")}
+    if "customer_name" not in have_conv:
+        conn.execute("ALTER TABLE omni_conversations ADD COLUMN customer_name TEXT")
+        conn.execute("UPDATE omni_conversations SET customer_name = user_name WHERE customer_name IS NULL")
+    have_msg = {r["name"] for r in conn.execute("PRAGMA table_info(omni_messages)")}
+    if "sender" not in have_msg:
+        conn.execute("ALTER TABLE omni_messages ADD COLUMN sender TEXT")
+        conn.execute("UPDATE omni_messages SET sender = sender_type WHERE sender IS NULL")
+    if "payload" not in have_msg:
+        conn.execute("ALTER TABLE omni_messages ADD COLUMN payload TEXT")
+        conn.execute("UPDATE omni_messages SET payload = metadata_json WHERE payload IS NULL")
+
+    # ใส่ตัวอย่างการสนทนา Omni-Channel ถ้ายังไม่มีข้อมูล
+    has_omni = conn.execute("SELECT 1 FROM omni_conversations LIMIT 1").fetchone()
+    if not has_omni:
+        sample_convs = [
+            ("facebook", "fb_user_101", "คุณมินตรา ชัยประเสริฐ", "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80", "ai",
+             "สั่งซื้อทันทีได้ที่: https://ai4you.click/bookstore-demo/?buy_copy=24 ค่ะ",
+             [("user", "สวัสดีค่ะ มีหนังสือ Atomic Habits ไหมคะ"),
+              ("ai", "สวัสดีค่ะคุณมินตรา 😊 หนังสือ 'Atomic Habits เพราะชีวิตดีได้กว่าที่เป็น' มีสต็อกพร้อมส่งค่ะ! สภาพเกรด A ราคา 148 บาท (ชั้น D-02-1)\n\n🛒 สั่งซื้อทันทีได้ที่: https://ai4you.click/bookstore-demo/?buy_copy=24 (จัดส่งฟรีเมื่อช้อปครบ 500 บาทค่ะ)")]),
+
+            ("line", "line_user_202", "กิตติพงษ์ (Kittipong)", "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80", "ai",
+             "ประเมินราคารับซื้อเบื้องต้นสำหรับ 'ข้างหลังภาพ' เกรด A ~110 บ. เกรด B ~80 บ.",
+             [("user", "อยากขายคืนหนังสือ ข้างหลังภาพ ได้กี่บาทครับ"),
+              ("ai", "สวัสดีค่ะคุณกิตติพงษ์ 📚 ประเมินราคารับซื้อเบื้องต้นสำหรับ 'ข้างหลังภาพ' (ราคาปก 220 บาท):\n• เกรด A (สภาพสวยกริบ): ~110 บาท (เงินสด) / 120 บาท (Store Credit)\n• เกรด B (สภาพดี): ~80 บาท (เงินสด) / 88 บาท (Store Credit)\n• เกรด C (พออ่านได้): ~45 บาท\n\n💡 รับเป็น Store Credit ได้โบนัส +5% ไว้ช้อปเล่มอื่นได้ทันทีค่ะ\n📦 กดสร้างใบปะหน้าพัสดุแล้วส่งเข้าคลังได้ที่: https://ai4you.click/bookstore-demo/?tab=buyback ได้เลยนะคะ")]),
+
+            ("instagram", "ig_user_303", "bookworm.ploy", "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80", "ai",
+             "แนวจิตวิทยาพัฒนาตนเองแนะนำ Atomic Habits และ คิดแบบยิว ทำแบบญี่ปุ่น ค่ะ",
+             [("user", "ช่วงนี้มีหนังสือแนวจิตวิทยาพัฒนาตนเองแนะนำไหมคะ"),
+              ("ai", "สวัสดีค่ะคุณพลอย ✨ แนวจิตวิทยาพัฒนาตนเองทางร้านมีเล่มเด็ดแนะนำเลยค่ะ:\n1. 'Atomic Habits' - พลังของนิสัยเล็กๆ เปลี่ยนชีวิต\n2. 'คิดแบบยิว ทำแบบญี่ปุ่น' - เปรียบวิธีคิดและการทำงานที่ลงตัว\n3. 'ชีวิตนี้สั้นนัก' โดย ว.วชิรเมธี - ปรับมุมมองการใช้ชีวิตให้มีความสุข\n\nทุกเล่มสภาพดีมากพร้อมส่งค่ะ ทักแอดมินหรือคลิกดูหน้าเว็บได้เลยนะคะ 💕")]),
+
+            ("tiktok", "tiktok_user_404", "น้องพรีม รีวิว", "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&auto=format&fit=crop&q=80", "human_agent",
+             "มีปัญหาเรื่องพัสดุ อยากคุยกับคนหน่อยค่ะ",
+             [("user", "สั่งหนังสือไปแล้วยังไม่ได้รับเลขพัสดุเลยค่ะ มีปัญหาเรื่องที่อยู่จัดส่ง ขอคุยกับพนักงานหน่อยค่ะ"),
+              ("ai", "รับเรื่องเรียบร้อยแล้วค่ะ Ava ได้ส่งต่อข้อความให้พี่พนักงานร้านดูแลต่อแล้วนะคะ พนักงานจะเข้ามาตอบในแชทนี้เร็วที่สุดค่ะ 🙏")])
+        ]
+        for ch, uid, uname, avatar, status, last_msg, msgs in sample_convs:
+            cur = conn.execute(
+                "INSERT INTO omni_conversations(channel, channel_user_id, user_name, user_avatar, status, last_message, last_message_at, unread_count, created_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
+                (ch, uid, uname, avatar, status, last_msg, now(), 1 if status == "human_agent" else 0, now())
+            )
+            cid = cur.lastrowid
+            for s_type, content in msgs:
+                conn.execute(
+                    "INSERT INTO omni_messages(conversation_id, sender_type, content, created_at)"
+                    " VALUES(?,?,?,?)",
+                    (cid, s_type, content, now())
+                )
+
     # ย้ายรูปปกเดี่ยวที่เคยเก็บไว้ก่อนหน้านี้ (titles.cover_path) เข้าตารางใหม่
     # ให้เป็นรูปที่ 1 ของแต่ละเล่ม ไม่ให้ของเดิมที่นุ่นสแกนไปแล้วหายไป
     conn.execute("INSERT INTO title_images(title_id, file, label, position, created_at)"
@@ -1603,6 +1684,14 @@ def api_chat(history, mode="staff", channel=None):
     if not user_msg:
         return {"reply": "พิมพ์คำถามได้เลยค่ะ", "books": []}
 
+    # ระบบโอนสายให้พนักงาน (Human Handoff) เมื่อลูกค้าต้องการความช่วยเหลือเพิ่มเติมหรือมีข้อร้องเรียน
+    HANDOFF_WORDS = ("คุยกับคน", "พนักงาน", "แอดมิน", "ติดต่อคน", "เจ้าหน้าที่", "ร้องเรียน", "ขอเบอร์", "โทรหา", "มีปัญหา", "human", "agent", "โทร")
+    if mode == "customer" and any(w in user_msg.lower() for w in HANDOFF_WORDS):
+        return {
+            "reply": "รับเรื่องเรียบร้อยแล้วค่ะ Ava ได้ส่งต่อข้อความให้พี่พนักงานร้านดูแลต่อแล้วนะคะ พนักงานจะเข้ามาตอบในแชทนี้เร็วที่สุดค่ะ 🙏\n(หากต้องการสอบถามสต็อกหนังสือหรือค้นหาเล่มอื่นต่อ พิมพ์ถาม Ava ต่อได้ตลอดเวลานะคะ)",
+            "books": [], "links": [], "handoff": True
+        }
+
     # ลำดับสำคัญ: เช็คเรื่องหลังร้านก่อน ไม่งั้นพนักงานถาม "ต้นทุนรับซื้อเท่าไหร่"
     # จะไปโดนดักด้วยคำว่า "รับซื้อ" แล้วได้นโยบายกลับมาแทนตัวเลขต้นทุนจริงของเล่มนั้น
     if mode == "customer" and any(w in user_msg for w in BACKOFFICE_WORDS):
@@ -1611,8 +1700,35 @@ def api_chat(history, mode="staff", channel=None):
     asking_cost = any(w in user_msg for w in ("ต้นทุน", "กำไร", "ทุนเท่าไหร่",
                                               "ซื้อมาเท่าไหร่"))
     if any(w in user_msg.lower() for w in BUYBACK_WORDS) and not asking_cost:
-        return {"reply": BUYBACK_REPLY if mode == "customer" else
-                "รับซื้อคืนค่ะ สแกนสติกเกอร์ที่แท็บ 'รับซื้อ' ระบบคิดราคาให้จาก"
+        if mode == "customer":
+            found = _search_contained_in(user_msg)
+            if not found:
+                clean_q = re.sub(r"(รับซื้อ|ขายคืน|ประเมินราคา|ซื้อคืน|ได้กี่บาท|ราคาเท่าไหร่|ขายได้ไหม|หนังสือ|เล่มนี้|ไหมคะ|ไหมครับ|ค่ะ|ครับ|\?)", "", user_msg).strip()
+                if len(clean_q) >= 2:
+                    found, _ = _tool_search_books(clean_q, mode)
+            if found:
+                t = found[0]
+                cover = float(t.get("cover_price") or 250)
+                val_a = round(cover * 0.50 / 5) * 5
+                val_b = round(cover * 0.35 / 5) * 5
+                val_c = round(cover * 0.20 / 5) * 5
+                credit_b = round(val_b * 1.05 / 5) * 5
+                rep = (f"📚 **ประเมินราคารับซื้อเบื้องต้น: {t['title']}**\n"
+                       f"• ราคาอ้างอิง: {cover:g} บาท\n"
+                       f"• ราคารับซื้อคืนประเมิน (หัก 30% จากราคาขาย):\n"
+                       f"  - เกรด A (สภาพสวยกริบ): ~{val_a:g} บาท (เงินสด) / ~{round(val_a*1.05/5)*5:g} บาท (Store Credit)\n"
+                       f"  - เกรด B (สภาพดี): ~{val_b:g} บาท (เงินสด) / ~{credit_b:g} บาท (Store Credit)\n"
+                       f"  - เกรด C (พออ่านได้): ~{val_c:g} บาท\n\n"
+                       f"💡 พิเศษ: รับเป็น Store Credit ได้รับโบนัส +5% ไว้ใช้ซื้อเล่มอื่นในร้านได้ทันทีค่ะ\n"
+                       f"📦 ลูกค้าสามารถกดสร้างใบปะหน้าพัสดุและส่งหนังสือเข้าคลังได้เลยที่: https://ai4you.click/bookstore-demo/?tab=buyback ค่ะ")
+                return {"reply": rep, "books": [t], "links": [{"label": "สร้างใบปะหน้าขายคืน 30%", "url": "?tab=buyback"}], "valuation": True}
+
+            return {
+                "reply": ("ทางร้านรับซื้อหนังสือคืนโดยหัก 30% จากราคาขายอ้างอิงค่ะ (รับเงินสด 70% หรือ Store Credit 75% พร้อมโบนัส +5% ไว้ช้อปเล่มอื่นในร้านได้ทันที)\n\n"
+                          "ลูกค้าสามารถพิมพ์ชื่อเรื่องหรือส่งรูปปกหนังสือมาให้ Ava ประเมินราคาเบื้องต้นได้เลยนะคะ หรือกดประเมินราคาและออกใบปะหน้าพัสดุส่งเข้าคลังได้ที่: https://ai4you.click/bookstore-demo/?tab=buyback ค่ะ 📦✨"),
+                "books": [], "links": [{"label": "ไปที่หน้ารับซื้อคืน 30%", "url": "?tab=buyback"}]
+            }
+        return {"reply": "รับซื้อคืนค่ะ สแกนสติกเกอร์ที่แท็บ 'รับซื้อ' ระบบคิดราคาให้จาก"
                 "ราคาที่ขายไปจริง (A 45% / B 40% / C 30%) ถ้าไม่มีสติกเกอร์ให้กรอกราคาปกแทน",
                 "books": [], "links": []}
 
@@ -1732,12 +1848,29 @@ def api_chat(history, mode="staff", channel=None):
     # จึงเห็นเป็น *ชื่อหนังสือ* ติดดาวมาเลย
     reply = re.sub(r"^\s*[-*•]\s+", "", reply, flags=re.M)
     reply = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", reply)
-    reply = re.sub(r"\n{3,}", "\n\n", reply).strip()
+    # สกัดลิงก์สั่งซื้อทันที (Instant Order Link) สำหรับเล่มที่มีสต็อกพร้อมส่ง
+    order_links = []
+    if is_customer and books:
+        for b in books:
+            copies = b.get("copies") or []
+            in_stock = [c for c in copies if c.get("status") == "in_stock" or "shelf" in c]
+            if in_stock:
+                cid = in_stock[0].get("id")
+                order_links.append({
+                    "title": b["title"],
+                    "copy_id": cid,
+                    "price": in_stock[0].get("price"),
+                    "url": f"https://ai4you.click/bookstore-demo/?buy_copy={cid}"
+                })
+    if order_links and channel:
+        reply += f"\n\n🛒 สั่งซื้อทันที: {order_links[0]['url']} (ชำระผ่าน QR PromptPay หรือบัตรเครดิต)"
+
     return {"reply": reply,
             # โหมดลูกค้าได้การ์ดฉบับตัดข้อมูลหลังร้านออกแล้ว (ไม่มีชั้นวาง/ต้นทุน) + กดจองได้
             "books": _customer_books(books) if is_customer else books,
             "links": links,
-            "covers": covers}
+            "covers": covers,
+            "order_links": order_links}
 
 
 def suggest_price(cover_price, grade):
@@ -3338,17 +3471,17 @@ def fb_handle_event(ev):
             hist.append({"role": "user", "content": text[:500]})
             del hist[:-6]
             convo = list(hist)
-        res = api_chat(convo, "customer", channel="messenger")
-        reply = fb_format_reply(res)
-        with _fb_lock:
-            hist.append({"role": "assistant", "content": reply[:500]})
-            del hist[:-6]
-        fb_send(psid, reply)
-        # api_chat แนบรูปเฉพาะตอนลูกค้าขอดูรูป และบอกโมเดลไปแล้วว่าส่งรูปให้ — ต้องส่งจริงไม่งั้นพูดไม่ตรง
-        for c in (res.get("covers") or [])[:FB_IMAGE_MAX]:
-            fpath = COVERS_DIR / c["file"]
-            if fpath.is_file():
-                fb_send_image(psid, fpath)
+        omni_res = api_omni_process_message("facebook", psid, "Facebook Customer", text)
+        reply = omni_res.get("reply")
+        if reply:
+            with _fb_lock:
+                hist.append({"role": "assistant", "content": reply[:500]})
+                del hist[:-6]
+            fb_send(psid, reply)
+            for c in (omni_res.get("covers") or [])[:FB_IMAGE_MAX]:
+                fpath = COVERS_DIR / c["file"]
+                if fpath.is_file():
+                    fb_send_image(psid, fpath)
     except Exception as exc:
         print("messenger error:", exc, file=sys.stderr, flush=True)
         try:
@@ -3356,6 +3489,235 @@ def fb_handle_event(ev):
                 fb_send(ev["sender"]["id"], FB_ERROR)
         except Exception:
             pass
+
+
+def api_omni_process_message(channel, channel_user_id, user_name, text, media_url=None):
+    """ประมวลผลข้อความจากทุกช่องทาง (Omni-Channel: Facebook, LINE, Instagram, TikTok, Web)
+    บันทึกเข้า omni_conversations / omni_messages แล้วตอบกลับด้วย AI หรือส่งต่อพนักงาน (Handoff)"""
+    conn = db()
+    now_str = now()
+    row = conn.execute(
+        "SELECT * FROM omni_conversations WHERE channel=? AND channel_user_id=?",
+        (channel, str(channel_user_id))
+    ).fetchone()
+
+    if row:
+        conv_id = row["id"]
+        status = row["status"]
+        unread = row["unread_count"] + 1
+        if user_name and user_name != row["customer_name"] and not row["customer_name"].startswith("คุณ"):
+            conn.execute("UPDATE omni_conversations SET customer_name=? WHERE id=?", (user_name, conv_id))
+    else:
+        u_name = user_name or f"ลูกค้า {channel.title()}"
+        cur = conn.execute(
+            """INSERT INTO omni_conversations
+               (channel, channel_user_id, customer_name, user_name, status, unread_count, last_message, last_message_at, created_at)
+               VALUES (?, ?, ?, ?, 'ai_active', 1, ?, ?, ?)""",
+            (channel, str(channel_user_id), u_name, u_name, text[:200], now_str, now_str)
+        )
+        conv_id = cur.lastrowid
+        status = "ai_active"
+        unread = 1
+
+    conn.execute(
+        """INSERT INTO omni_messages (conversation_id, sender, sender_type, content, media_url, created_at)
+           VALUES (?, 'customer', 'customer', ?, ?, ?)""",
+        (conv_id, text, media_url or "", now_str)
+    )
+
+    text_clean = text.strip().lower()
+    if any(w in text_clean for w in ("เปิด ai", "ถาม ai", "คุยกับ ai", "เปิดบอท", "bot", "ai ตอบ")):
+        status = "ai_active"
+        conn.execute("UPDATE omni_conversations SET status='ai_active' WHERE id=?", (conv_id,))
+
+    if status == "human_agent":
+        conn.execute(
+            "UPDATE omni_conversations SET unread_count=?, last_message=?, last_message_at=? WHERE id=?",
+            (unread, text[:200], now_str, conv_id)
+        )
+        conn.commit()
+        conn.close()
+        return {
+            "conversation_id": conv_id,
+            "status": "human_agent",
+            "reply": None,
+            "handoff": True,
+            "notice": "อยู่ในโหมดเจ้าหน้าที่ดูแล ระบบได้แจ้งเตือนพนักงานแล้วค่ะ"
+        }
+
+    msg_rows = conn.execute(
+        """SELECT sender, sender_type, content FROM omni_messages
+           WHERE conversation_id=? ORDER BY id DESC LIMIT 6""",
+        (conv_id,)
+    ).fetchall()
+    history = []
+    for m in reversed(msg_rows):
+        s = m["sender"] or m["sender_type"]
+        role = "user" if s in ("customer", "user") else "assistant"
+        history.append({"role": role, "content": m["content"]})
+
+    ai_res = api_chat(history, mode="customer", channel=channel)
+    reply_text = ai_res.get("reply") or "ขออภัยค่ะ มีข้อผิดพลาดในการประมวลผล"
+    handoff = bool(ai_res.get("handoff"))
+    new_status = "human_agent" if handoff else "ai_active"
+
+    now_reply = now()
+    payload_json = json.dumps({
+        "books": ai_res.get("books", []),
+        "order_links": ai_res.get("order_links", []),
+        "links": ai_res.get("links", []),
+        "valuation": ai_res.get("valuation", False),
+        "handoff": handoff
+    }, ensure_ascii=False)
+
+    conn.execute(
+        """INSERT INTO omni_messages (conversation_id, sender, sender_type, content, payload, metadata_json, created_at)
+           VALUES (?, 'assistant', 'ai', ?, ?, ?, ?)""",
+        (conv_id, reply_text, payload_json, payload_json, now_reply)
+    )
+
+    unread_final = 1 if handoff else 0
+    conn.execute(
+        """UPDATE omni_conversations
+           SET status=?, unread_count=?, last_message=?, last_message_at=?
+           WHERE id=?""",
+        (new_status, unread_final, reply_text[:200], now_reply, conv_id)
+    )
+    conn.commit()
+    conn.close()
+
+    return {
+        "conversation_id": conv_id,
+        "status": new_status,
+        "reply": reply_text,
+        "books": ai_res.get("books", []),
+        "order_links": ai_res.get("order_links", []),
+        "links": ai_res.get("links", []),
+        "handoff": handoff,
+        "covers": ai_res.get("covers", [])
+    }
+
+
+def api_omni_conversations(channel=None, status=None):
+    """ดึงรายการบทสนทนา Omni-channel ทั้งหมด พร้อมตัวกรองช่องทางและสถานะ"""
+    conn = db()
+    query = "SELECT * FROM omni_conversations"
+    params = []
+    conds = []
+    if channel and channel != "all":
+        conds.append("channel=?")
+        params.append(channel)
+    if status and status != "all":
+        conds.append("status=?")
+        params.append(status)
+    if conds:
+        query += " WHERE " + " AND ".join(conds)
+    query += " ORDER BY last_message_at DESC"
+    rows = conn.execute(query, params).fetchall()
+    convs = [dict(r) for r in rows]
+    for c in convs:
+        if not c.get("customer_name") and c.get("user_name"):
+            c["customer_name"] = c["user_name"]
+    handoff_count = conn.execute("SELECT COUNT(*) AS c FROM omni_conversations WHERE status='human_agent'").fetchone()["c"]
+    total_unread = conn.execute("SELECT SUM(unread_count) AS c FROM omni_conversations").fetchone()["c"] or 0
+    conn.close()
+    return {"conversations": convs, "handoff_count": handoff_count, "total_unread": total_unread}
+
+
+def api_omni_messages(conversation_id):
+    """ดึงประวัติข้อความของบทสนทนาที่เลือก และรีเซ็ต unread_count"""
+    conn = db()
+    conv = conn.execute("SELECT * FROM omni_conversations WHERE id=?", (conversation_id,)).fetchone()
+    if not conv:
+        conn.close()
+        return {"error": "ไม่พบบทสนทนานี้"}
+    rows = conn.execute(
+        "SELECT * FROM omni_messages WHERE conversation_id=? ORDER BY id ASC",
+        (conversation_id,)
+    ).fetchall()
+    conn.execute("UPDATE omni_conversations SET unread_count=0 WHERE id=?", (conversation_id,))
+    conn.commit()
+    conn.close()
+    cdict = dict(conv)
+    if not cdict.get("customer_name") and cdict.get("user_name"):
+        cdict["customer_name"] = cdict["user_name"]
+    msgs = []
+    for r in rows:
+        m = dict(r)
+        if not m.get("sender") and m.get("sender_type"):
+            m["sender"] = m["sender_type"]
+        if not m.get("payload") and m.get("metadata_json"):
+            try:
+                m["payload"] = json.loads(m["metadata_json"])
+            except Exception:
+                pass
+        elif m.get("payload") and isinstance(m["payload"], str):
+            try:
+                m["payload"] = json.loads(m["payload"])
+            except Exception:
+                pass
+        msgs.append(m)
+    return {"conversation": cdict, "messages": msgs}
+
+
+def api_omni_reply(params, staff_name="Staff"):
+    """พนักงานตอบกลับข้อความลูกค้าใน Omni-channel Inbox"""
+    cid = int(params.get("conversation_id") or 0)
+    text = (params.get("content") or "").strip()
+    if not cid or not text:
+        return {"error": "กรุณาระบุ conversation_id และข้อความ"}
+    conn = db()
+    conv = conn.execute("SELECT * FROM omni_conversations WHERE id=?", (cid,)).fetchone()
+    if not conv:
+        conn.close()
+        return {"error": "ไม่พบบทสนทนานี้"}
+    now_str = now()
+    conn.execute(
+        """INSERT INTO omni_messages (conversation_id, sender, sender_type, content, created_at)
+           VALUES (?, 'staff', 'staff', ?, ?)""",
+        (cid, text, now_str)
+    )
+    conn.execute(
+        """UPDATE omni_conversations
+           SET status='human_agent', unread_count=0, last_message=?, last_message_at=?
+           WHERE id=?""",
+        (f"[{staff_name}]: {text}"[:200], now_str, cid)
+    )
+    conn.commit()
+
+    if conv["channel"] == "facebook" and conv["channel_user_id"]:
+        try:
+            fb_send(conv["channel_user_id"], text)
+        except Exception as e:
+            print("Failed to dispatch fb_send:", e, flush=True)
+
+    conn.close()
+    return {"ok": True, "message": "ส่งข้อความตอบกลับแล้ว"}
+
+
+def api_omni_toggle_status(params):
+    """สลับสถานะบทสนทนา (ai_active, human_agent, resolved)"""
+    cid = int(params.get("conversation_id") or 0)
+    status = params.get("status")
+    if status not in ("ai_active", "human_agent", "resolved"):
+        return {"error": "สถานะไม่ถูกต้อง (ต้องเป็น ai_active, human_agent, หรือ resolved)"}
+    conn = db()
+    conn.execute("UPDATE omni_conversations SET status=? WHERE id=?", (status, cid))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "status": status}
+
+
+def api_omni_simulate(params):
+    """จำลองข้อความลูกค้าจากช่องทางต่างๆ สำหรับทดสอบระบบ"""
+    channel = params.get("channel") or "line"
+    user_name = params.get("user_name") or "ลูกค้าจำลอง (Test User)"
+    user_id = params.get("user_id") or f"sim_{channel}_{int(time.time())}"
+    text = (params.get("text") or "").strip()
+    if not text:
+        return {"error": "กรุณาระบุข้อความที่ต้องการทดสอบ"}
+    res = api_omni_process_message(channel, user_id, user_name, text)
+    return {"ok": True, "result": res}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -3417,7 +3779,7 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import parse_qs, unquote
             query = {k: unquote(v[0]) for k, v in parse_qs(self.path.split("?", 1)[1]).items()}
 
-        if path == "/webhook/messenger":      # Meta ยืนยัน webhook (ไม่ต้องล็อกอิน แต่ต้องมี verify token)
+        if path in ("/webhook/messenger", "/webhook/instagram"):      # Meta ยืนยัน webhook (FB & IG)
             vt = _cfg("FB_VERIFY_TOKEN")
             if vt and query.get("hub.mode") == "subscribe" and hmac.compare_digest(
                     query.get("hub.verify_token", "").encode(), vt.encode()):
@@ -3529,11 +3891,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, make_barcode_svg(code), "image/svg+xml")
             except Exception as exc:
                 return self._send(500, {"error": f"สร้างบาร์โค้ดไม่ได้: {exc}"})
+        if path == "/api/omni/conversations":
+            return self._send(200, api_omni_conversations(query.get("channel"), query.get("status")))
+        if path == "/api/omni/messages":
+            cid = int(query.get("conversation_id") or 0)
+            return self._send(200, api_omni_messages(cid))
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
         path = self.path.split("?")[0].rstrip("/") or "/"
-        if path == "/webhook/messenger":      # ต้องอ่านตัวข้อความดิบเพื่อตรวจลายเซ็น จึงทำก่อน _read_json
+        if path in ("/webhook/messenger", "/webhook/instagram"):
             raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
             if not fb_valid_signature(raw, self.headers.get("X-Hub-Signature-256"), _cfg("FB_APP_SECRET")):
                 return self._send(403, {"error": "bad signature"})
@@ -3541,11 +3908,55 @@ class Handler(BaseHTTPRequestHandler):
                 data = json.loads(raw)
             except json.JSONDecodeError:
                 return self._send(400, {"error": "bad json"})
-            if data.get("object") == "page":
-                for entry in data.get("entry") or []:
-                    for ev in entry.get("messaging") or []:
+            channel = "instagram" if (path == "/webhook/instagram" or data.get("object") == "instagram") else "facebook"
+            for entry in data.get("entry") or []:
+                for ev in entry.get("messaging") or []:
+                    if channel == "facebook":
                         threading.Thread(target=fb_handle_event, args=(ev,), daemon=True).start()
+                    else:
+                        sender_id = (ev.get("sender") or {}).get("id")
+                        text = (ev.get("message") or {}).get("text")
+                        if sender_id and text:
+                            threading.Thread(
+                                target=api_omni_process_message,
+                                args=("instagram", sender_id, "ลูกค้า Instagram", text),
+                                daemon=True
+                            ).start()
             return self._send(200, "EVENT_RECEIVED", "text/plain; charset=utf-8")
+
+        if path == "/webhook/line":
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            try:
+                data = json.loads(raw)
+                for ev in data.get("events") or []:
+                    if ev.get("type") == "message" and (ev.get("message") or {}).get("type") == "text":
+                        uid = (ev.get("source") or {}).get("userId") or f"line_{int(time.time())}"
+                        text = ev["message"]["text"]
+                        threading.Thread(
+                            target=api_omni_process_message,
+                            args=("line", uid, "ลูกค้า LINE OA", text),
+                            daemon=True
+                        ).start()
+            except Exception as e:
+                print("LINE webhook error:", e, flush=True)
+            return self._send(200, {"status": "ok"})
+
+        if path == "/webhook/tiktok":
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            try:
+                data = json.loads(raw)
+                uid = data.get("sender_id") or data.get("user_id") or f"tiktok_{int(time.time())}"
+                text = data.get("text") or (data.get("message") or {}).get("content") or ""
+                if text:
+                    threading.Thread(
+                        target=api_omni_process_message,
+                        args=("tiktok", uid, "ลูกค้า TikTok Shop", text),
+                        daemon=True
+                    ).start()
+            except Exception as e:
+                print("TikTok webhook error:", e, flush=True)
+            return self._send(200, {"status": "ok"})
+
         p = self._read_json()
 
         # สมัคร/เข้าสู่ระบบลูกค้า (Social Login & Email)
@@ -3570,6 +3981,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_buyback_track(p.get("code") or p.get("phone")))
         if path == "/api/order/track":
             return self._send(200, api_order_track(p.get("code") or p.get("phone") or p.get("order_id")))
+        if path == "/api/omni/simulate":
+            return self._send(200, api_omni_simulate(p))
 
         if path == "/api/login":
             if p.get("quick_customer"):
@@ -3677,6 +4090,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_shelf_add(p))
         if path == "/api/title-save":
             return self._send(200, api_title_save(p))
+        if path == "/api/omni/reply":
+            return self._send(200, api_omni_reply(p, staff_name=user or "Staff"))
+        if path == "/api/omni/toggle-status":
+            return self._send(200, api_omni_toggle_status(p))
         if path == "/api/reset":
             DB.unlink(missing_ok=True)
             init_db()
