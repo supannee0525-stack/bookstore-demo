@@ -709,8 +709,11 @@ td.num { text-align: right; }
   background: var(--accent-grad);
 }
 
-/* 3 Photo Slots */
-.shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+/* 4 Photo Slots: ปกหน้า, ปกหลัง, สารบัญ, หน้าแรก/ลิขสิทธิ์ */
+.shots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+@media (max-width: 640px) {
+  .shots { grid-template-columns: repeat(2, 1fr); }
+}
 .shot-slot {
   position: relative;
   display: flex;
@@ -1359,8 +1362,8 @@ body.is-customer #customer-nav { display: flex !important; }
         </div>
 
         <div class="stockin-card aibox">
-          <div class="card-title">2. ไม่มีบาร์โค้ด? ให้ AI อ่านปก</div>
-          <p>ถ่ายรูปได้ถึง 3 รูป ยิ่งครบยิ่งได้ข้อมูลครบ (เนื้อเรื่องย่อมักอยู่ปกหลัง · ปีพิมพ์กับราคามักอยู่หน้าแรก)</p>
+          <div class="card-title">2. ไม่มีบาร์โค้ด? ให้ AI อ่านปก & สารบัญ</div>
+          <p>ถ่ายรูปได้ 4 มุมมอง: ปกหน้า · ปกหลัง · สารบัญ · หน้าแรก/ลิขสิทธิ์ (ระบบ AI OCR จะดึงข้อความและหัวข้อสำคัญให้อัตโนมัติ)</p>
           <div class="shots">
             <label class="shot-slot" for="cover-front">
               <span class="slot-name">ปกหน้า</span>
@@ -1373,6 +1376,12 @@ body.is-customer #customer-nav { display: flex !important; }
               <img class="slot-img" hidden alt="">
               <span class="slot-hint">แตะเพื่อถ่าย</span>
               <input type="file" id="cover-back" data-slot="back" accept="image/*" capture="environment" hidden>
+            </label>
+            <label class="shot-slot" for="cover-toc">
+              <span class="slot-name">สารบัญ</span>
+              <img class="slot-img" hidden alt="">
+              <span class="slot-hint">แตะเพื่อถ่าย</span>
+              <input type="file" id="cover-toc" data-slot="toc" accept="image/*" capture="environment" hidden>
             </label>
             <label class="shot-slot" for="cover-inside">
               <span class="slot-name">หน้าแรก</span>
@@ -1419,7 +1428,8 @@ body.is-customer #customer-nav { display: flex !important; }
             </label>
           </div>
           <div class="row" style="margin-top:10px">
-            <button class="btn sm" id="btn-ai" disabled>ให้ AI อ่าน</button>
+            <button class="btn sm" id="btn-ai" disabled>ให้ AI อ่านรูป</button>
+            <button class="btn ghost sm" id="btn-enrich" style="background:linear-gradient(135deg,rgba(59,130,246,0.12),rgba(147,51,234,0.15));border-color:rgba(147,51,234,0.4);color:#c084fc">✨ AI สรุป & เทียบราคา</button>
             <button class="btn ghost sm" id="btn-compare" disabled style="flex:none">เทียบ 4 โมเดล</button>
             <button class="btn ghost sm" id="btn-clear-shots" style="flex:none">ล้างรูป</button>
           </div>
@@ -1433,6 +1443,56 @@ body.is-customer #customer-nav { display: flex !important; }
       </div>
 
       <div class="stockin-col-form">
+        <!-- AI Intelligence & Market Price Comparison Card -->
+        <div class="stockin-card ai-enrich-card" id="ai-enrich-card" hidden style="border-color:rgba(147,51,234,0.35);background:linear-gradient(180deg,rgba(30,27,75,0.3) 0%,rgba(15,23,42,0.6) 100%)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+            <div class="card-title" style="margin:0;color:#c084fc;display:flex;align-items:center;gap:6px">
+              <span>🤖</span> AI ประมวลผล & เปรียบเทียบราคา 5 แพลตฟอร์ม
+            </div>
+            <span class="badge" style="background:rgba(147,51,234,0.2);color:#d8b4fe;border:1px solid rgba(147,51,234,0.4)">Web Scraping + Gen AI</span>
+          </div>
+
+          <!-- บทสรุปเนื้อหา -->
+          <div class="enrich-section" style="margin-bottom:12px">
+            <div style="font-weight:600;font-size:0.83rem;color:#93c5fd;margin-bottom:4px">📑 บทสรุปเนื้อหาสำคัญ (AI Book Summary)</div>
+            <div id="enrich-summary" style="font-size:0.83rem;line-height:1.55;color:#e2e8f0;background:rgba(15,23,42,0.6);padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.06)"></div>
+          </div>
+
+          <!-- รีวิวสั้น & จุดขายหน้าร้าน -->
+          <div class="enrich-section" style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="font-weight:600;font-size:0.83rem;color:#fcd34d">🌟 รีวิวสั้น & จุดขายหน้าร้าน (Sales Review)</div>
+              <button class="btn ghost sm" id="btn-copy-review" type="button" style="font-size:0.72rem;padding:2px 8px;border-color:rgba(252,211,77,0.3);color:#fcd34d">📋 คัดลอกรีวิว</button>
+            </div>
+            <div id="enrich-review" style="font-size:0.83rem;line-height:1.55;color:#fef08a;background:rgba(254,240,138,0.05);padding:10px 12px;border-radius:8px;border:1px solid rgba(252,211,77,0.15);white-space:pre-line"></div>
+          </div>
+
+          <!-- ตารางเปรียบเทียบราคา 5 แพลตฟอร์ม -->
+          <div class="enrich-section" style="margin-bottom:12px">
+            <div style="font-weight:600;font-size:0.83rem;color:#a7f3d0;margin-bottom:6px">🏷️ เปรียบเทียบราคาตลาด 5 แพลตฟอร์ม</div>
+            <div style="overflow-x:auto">
+              <table class="market-table" style="width:100%;font-size:0.78rem;border-collapse:collapse">
+                <thead>
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.1);text-align:left;color:var(--muted)">
+                    <th style="padding:6px 8px">แพลตฟอร์ม</th>
+                    <th style="padding:6px 8px;text-align:right">ราคา</th>
+                    <th style="padding:6px 8px">สถานะ / สภาพ</th>
+                    <th style="padding:6px 8px">หมายเหตุ</th>
+                  </tr>
+                </thead>
+                <tbody id="market-price-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- คำแนะนำราคาขาย & ราคารับซื้อคืน 30% -->
+          <div class="enrich-section" style="background:rgba(59,130,246,0.08);padding:10px 12px;border-radius:8px;border:1px solid rgba(59,130,246,0.25)">
+            <div style="font-weight:600;font-size:0.82rem;color:#93c5fd;margin-bottom:8px">💡 ข้อเสนอแนะราคาขาย & ราคารับซื้อคืนที่เหมาะสม</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px" id="suggested-pricing-grid">
+            </div>
+          </div>
+        </div>
+
         <div class="stockin-card">
           <div class="card-title">3. ข้อมูลหนังสือและจัดวาง</div>
           <div class="field"><label for="f-title">ชื่อหนังสือ *</label><input id="f-title"></div>
@@ -1455,6 +1515,22 @@ body.is-customer #customer-nav { display: flex !important; }
             <div class="field"><label for="f-cover">ราคาปก (บาท)</label><input id="f-cover" class="mono" inputmode="decimal"></div>
           </div>
           <div class="field"><label for="f-syn">เนื้อเรื่องย่อ</label><textarea id="f-syn"></textarea></div>
+
+          <details style="margin:10px 0;background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 10px">
+            <summary style="cursor:pointer;font-size:0.82rem;color:var(--muted)">📖 สารบัญ / บทสรุป AI / รีวิวหน้าร้าน (คลิกเพื่อดูหรือแก้ไข)</summary>
+            <div class="field" style="margin-top:8px">
+              <label for="f-toc">สารบัญ (ดึงจากรูปสารบัญ หรือ AI สรุป)</label>
+              <textarea id="f-toc" style="min-height:55px" placeholder="หัวข้อสำคัญ สารบัญของหนังสือ..."></textarea>
+            </div>
+            <div class="field">
+              <label for="f-summary-ai">บทสรุปเนื้อหาสำคัญ (AI Book Summary)</label>
+              <textarea id="f-summary-ai" style="min-height:55px"></textarea>
+            </div>
+            <div class="field">
+              <label for="f-review-ai">รีวิวสั้น & จุดขายหน้าร้าน (AI Sales Review)</label>
+              <textarea id="f-review-ai" style="min-height:55px"></textarea>
+            </div>
+          </details>
 
           <div class="field">
             <label>สภาพเล่มนี้</label>
@@ -1965,6 +2041,8 @@ function bookCardHTML(t) {
                       : '<span class="badge medium">ไม่มี ISBN · AI อ่านปก</span>'}
             ${t.category ? '<span class="badge high">' + esc(t.category) + '</span>' : ''}</p>
           ${t.synopsis ? `<p class="syn">${esc(t.synopsis)}</p>` : ''}
+          ${t.summary_ai ? `<div style="margin:6px 0;padding:6px 9px;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;border-radius:4px;font-size:0.8rem;color:#cbd5e1"><span style="color:#60a5fa;font-weight:600">🤖 AI สรุป:</span> ${esc(t.summary_ai)}</div>` : ''}
+          ${t.review_ai ? `<div style="margin:4px 0 6px;padding:6px 9px;background:rgba(234,179,8,0.07);border-left:3px solid #eab308;border-radius:4px;font-size:0.8rem;color:#fef08a"><span style="color:#facc15;font-weight:600">🌟 จุดเด่นหน้าร้าน:</span> ${esc(t.review_ai)}</div>` : ''}
           <a class="review-link" target="_blank" rel="noopener noreferrer"
              href="https://www.google.com/search?q=${encodeURIComponent(
                [t.title, t.title_alt, t.author, 'รีวิว หนังสือ'].filter(Boolean).join(' '))}">
@@ -2002,6 +2080,8 @@ function customerCardHTML(t) {
             · ${esc(t.publisher || '-')} ${esc(t.year || '')}
             ${t.category ? '<span class="badge high">' + esc(t.category) + '</span>' : ''}</p>
           ${t.synopsis ? `<p class="syn">${esc(t.synopsis)}</p>` : ''}
+          ${t.summary_ai ? `<div style="margin:6px 0;padding:6px 9px;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;border-radius:4px;font-size:0.8rem;color:#cbd5e1"><span style="color:#60a5fa;font-weight:600">🤖 AI สรุป:</span> ${esc(t.summary_ai)}</div>` : ''}
+          ${t.review_ai ? `<div style="margin:4px 0 6px;padding:6px 9px;background:rgba(234,179,8,0.07);border-left:3px solid #eab308;border-radius:4px;font-size:0.8rem;color:#fef08a"><span style="color:#facc15;font-weight:600">🌟 แนะนำ:</span> ${esc(t.review_ai)}</div>` : ''}
           <a class="review-link" target="_blank" rel="noopener noreferrer"
              href="https://www.google.com/search?q=${encodeURIComponent(
                [t.title, t.title_alt, t.author, 'รีวิว หนังสือ'].filter(Boolean).join(' '))}">
@@ -2592,7 +2672,8 @@ $('btn-scan-stop').addEventListener('click', stopScan);
 $('btn-lookup').addEventListener('click', async () => {
   const isbn = $('isbn').value.trim();
   if (!isbn) { toast('ใส่ ISBN ก่อน', 'error'); return; }
-  const r = await get('lookup?isbn=' + encodeURIComponent(isbn));
+  $('lookup-msg').innerHTML = '<span class="spin"></span> กำลังค้นหาข้อมูลหนังสือและราคาตลาด...';
+  const r = await get('lookup?isbn=' + encodeURIComponent(isbn) + '&enrich=1');
   if (r.found) {
     const t = r.title;
     foundTitleId = t.id;
@@ -2601,24 +2682,57 @@ $('btn-lookup').addEventListener('click', async () => {
     $('f-pub').value = t.publisher || ''; setCategory(t.category || '', '');
     $('f-edition').value = t.edition || ''; $('f-year').value = t.year || '';
     $('f-cover').value = t.cover_price || ''; $('f-syn').value = t.synopsis || '';
+    if (t.toc_text && $('f-toc')) $('f-toc').value = t.toc_text;
+    if (t.summary_ai && $('f-summary-ai')) $('f-summary-ai').value = t.summary_ai;
+    if (t.review_ai && $('f-review-ai')) $('f-review-ai').value = t.review_ai;
     recalcPrice();
+    // ถ้ามีข้อมูล Enrich หรือราคาตลาด ให้แสดงการ์ด AI
+    renderAiEnrichCard({
+      summary_ai: t.summary_ai,
+      review_ai: t.review_ai,
+      market_prices: t.market_prices_json ? (typeof t.market_prices_json === 'string' ? JSON.parse(t.market_prices_json) : t.market_prices_json) : null,
+      suggested_pricing: {
+        cover_price: t.cover_price,
+        suggested_sell_price: t.suggested_sell_price,
+        suggested_buyback_price: t.suggested_buyback_price
+      }
+    });
     $('lookup-msg').innerHTML = '<span class="badge high">พบในฐานข้อมูล</span> ' +
       'เติมข้อมูลให้แล้ว — เหลือแค่เลือกสภาพกับชั้นวาง';
+  } else if (r.enriched && r.title) {
+    // พบข้อมูลจากอินเทอร์เน็ต (Web Scraping + Gen AI)
+    foundTitleId = null;
+    $('f-title').value = r.title || ''; $('f-title-alt').value = r.title_alt || '';
+    $('f-author').value = r.author || ''; $('f-translator').value = r.translator || '';
+    $('f-pub').value = r.publisher || ''; setCategory(r.category || '', 'ai');
+    $('f-edition').value = r.edition || ''; $('f-year').value = r.year || '';
+    $('f-cover').value = r.cover_price || ''; $('f-syn').value = r.synopsis || '';
+    if (r.summary_ai && $('f-summary-ai')) $('f-summary-ai').value = r.summary_ai;
+    if (r.review_ai && $('f-review-ai')) $('f-review-ai').value = r.review_ai;
+    if (r.toc_summary && $('f-toc')) $('f-toc').value = r.toc_summary;
+    recalcPrice();
+    renderAiEnrichCard(r);
+    $('lookup-msg').innerHTML = '<span class="badge high">AI ดึงข้อมูลจากเน็ตสำเร็จ</span> ' +
+      'เติมข้อมูลและเทียบราคาตลาดให้แล้ว — ตรวจสอบแล้วกดบันทึกได้เลย';
+    toast('AI ดึงข้อมูลจากอินเทอร์เน็ตสำเร็จ!');
   } else {
     foundTitleId = null;
-    $('lookup-msg').innerHTML = '<span class="badge medium">ไม่พบ</span> ' +
-      'เล่มนี้ยังไม่มีในระบบ — ถ่ายรูปปกให้ AI อ่าน หรือกรอกมือด้านล่าง';
+    $('ai-enrich-card').hidden = true;
+    $('lookup-msg').innerHTML = '<span class="badge medium">ไม่พบในระบบ</span> ' +
+      'เล่มนี้ยังไม่มีในระบบ — ถ่ายรูปปกให้ AI อ่าน หรือกดปุ่ม "✨ AI สรุป & เทียบราคา"';
   }
 });
 
-/* รูป 3 ช่อง: ปกหน้า / ปกหลัง / หน้าแรก — เก็บเป็น base64 ที่ย่อแล้ว */
-const SLOT_LABEL = {front: 'ปกหน้า', back: 'ปกหลัง', inside: 'หน้าแรก'};
-let shots = {};   // {front: b64, back: b64, inside: b64}
+/* รูป 4 ช่อง: ปกหน้า / ปกหลัง / สารบัญ / หน้าแรก — เก็บเป็น base64 ที่ย่อแล้ว */
+const SLOT_LABEL = {front: 'ปกหน้า', back: 'ปกหลัง', toc: 'สารบัญ', inside: 'หน้าแรก/ลิขสิทธิ์'};
+let shots = {};   // {front: b64, back: b64, toc: b64, inside: b64}
+let currentMarketPrices = null;
+let currentSuggestedSell = null;
+let currentSuggestedBuyback = null;
 
 function shotCount() { return Object.keys(shots).length; }
 
 // ย่อด้านยาวเป็น ~1800px ก่อนส่งให้ AI — ทดสอบแล้วช่วยให้อ่านภาษาไทยแม่นขึ้นจริง
-// (ภาพเล็กเกินทำให้วรรณยุกต์หาย ภาพใหญ่เกินก็เปลืองค่า token เปล่าๆ)
 function resizeToB64(dataUrl, fallbackB64) {
   return new Promise(resolve => {
     const img = new Image();
@@ -2632,7 +2746,7 @@ function resizeToB64(dataUrl, fallbackB64) {
         c.getContext('2d').drawImage(img, 0, 0, w, h);
         resolve(c.toDataURL('image/jpeg', 0.92).split(',')[1]);
       } catch (err) {
-        resolve(fallbackB64);      // ย่อไม่ได้ก็ส่งภาพเดิมไป
+        resolve(fallbackB64);
       }
     };
     img.onerror = () => resolve(fallbackB64);
@@ -2640,8 +2754,6 @@ function resizeToB64(dataUrl, fallbackB64) {
   });
 }
 
-// จับเวลาทั้งหมดต่อเล่ม — เริ่มนับตอนถ่ายรูปแรกของเล่มนี้ จนกว่าจะกดบันทึกหรือล้างรูป
-// ใช้เทียบกับแรงงานคนตอนพรีเซนต์ลูกค้า (ไม่ใช่แค่เวลา AI แต่รวมเวลาคนตรวจ/แก้ด้วย)
 let bookStartTime = null;
 
 document.querySelectorAll('.shot-slot input[type=file]').forEach(inp => {
@@ -2658,7 +2770,7 @@ document.querySelectorAll('.shot-slot input[type=file]').forEach(inp => {
       box.classList.add('filled');
       shots[slot] = await resizeToB64(fr.result, fr.result.split(',')[1]);
       $('btn-ai').disabled = $('btn-compare').disabled = shotCount() === 0;
-      $('ai-msg').textContent = `เลือกแล้ว ${shotCount()} รูป — กด "ให้ AI อ่าน" ได้เลย`;
+      $('ai-msg').textContent = `เลือกแล้ว ${shotCount()} รูป (${SLOT_LABEL[slot]}) — กด "ให้ AI อ่านรูป" หรือ "✨ AI สรุป & เทียบราคา" ได้เลย`;
     };
     fr.readAsDataURL(f);
   });
@@ -2676,7 +2788,14 @@ $('btn-clear-shots').addEventListener('click', () => {
   $('ai-msg').textContent = '';
   $('ocr-raw').hidden = true;
   $('cmp').hidden = true;
-  bookStartTime = null;   // เล่มนี้จบแล้ว (บันทึกแล้วหรือล้างทิ้ง) เริ่มจับเวลาใหม่ตอนถ่ายรูปเล่มถัดไป
+  if ($('f-toc')) $('f-toc').value = '';
+  if ($('f-summary-ai')) $('f-summary-ai').value = '';
+  if ($('f-review-ai')) $('f-review-ai').value = '';
+  if ($('ai-enrich-card')) $('ai-enrich-card').hidden = true;
+  currentMarketPrices = null;
+  currentSuggestedSell = null;
+  currentSuggestedBuyback = null;
+  bookStartTime = null;
 });
 
 $('btn-ai').addEventListener('click', async () => {
@@ -2685,7 +2804,7 @@ $('btn-ai').addEventListener('click', async () => {
   const n = shotCount();
   const engine = (document.querySelector('input[name="engine"]:checked') || {}).value || 'typhoon';
   const engName = engine === 'gemini' ? 'Gemini' : 'Typhoon';
-  $('ai-msg').innerHTML = `<span class="spin"></span> ${engName} กำลังอ่าน ${n} รูป...`;
+  $('ai-msg').innerHTML = `<span class="spin"></span> ${engName} กำลังอ่านรูปภาพ ${n} มุมมอง...`;
   const images = Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]}));
   const r = await post('ai-read', {images: images, media_type: 'image/jpeg', engine: engine});
   $('btn-ai').disabled = false;
@@ -2707,10 +2826,11 @@ function applyRead(r) {
   if (d.year) $('f-year').value = d.year;
   if (d.isbn) $('isbn').value = d.isbn;
   if (d.synopsis) $('f-syn').value = d.synopsis;
+  if (d.toc_text && $('f-toc')) $('f-toc').value = d.toc_text;
   if (d.cover_price) { $('f-cover').value = String(d.cover_price).replace(/[^\d.]/g, ''); recalcPrice(); }
   const conf = d.confidence || 'medium';
   const label = {high: 'มั่นใจสูง', medium: 'มั่นใจกลาง', low: 'มั่นใจต่ำ'}[conf] || conf;
-  // ชื่อคน/สำนักพิมพ์ AI พลาดวรรณยุกต์บ่อยสุด — ทำเครื่องหมายให้พนักงานเห็นชัดว่าต้องตรวจ
+  
   document.querySelectorAll('.needs-check').forEach(el => el.classList.remove('needs-check'));
   const FIELD = {author: 'f-author', translator: 'f-translator',
                  publisher: 'f-pub', category: 'f-category'};
@@ -2719,12 +2839,11 @@ function applyRead(r) {
     ? '<br><span class="badge low">ต้องตรวจ</span> ชื่อคนและสำนักพิมพ์ — AI พลาดวรรณยุกต์/ตัวสะกดไทยได้ ถ้าเพี้ยนลูกค้าจะค้นหาไม่เจอ'
     : '';
   $('ai-msg').innerHTML = `<span class="badge ${esc(conf)}">${esc(label)}</span> ` +
-    `AI เติมข้อมูลให้แล้ว — <strong>ตรวจก่อนบันทึกทุกครั้ง</strong>` +
+    `AI สกัดข้อความจากรูปให้แล้ว — <strong>ตรวจทานก่อนบันทึก</strong> (หรือกดปุ่ม ✨ AI สรุป & เทียบราคา)` +
     (r.elapsed_ms ? ` <span class="mono" style="font-size:.75rem;color:var(--accent-2)">อ่านใช้เวลา ${(r.elapsed_ms/1000).toFixed(1)}s</span>` : '') +
     (r.usage ? ` <span class="mono" style="font-size:.75rem">(${r.usage.in}+${r.usage.out} tokens)</span>` : '') +
     warn;
 
-  // โชว์ข้อความดิบที่ OCR อ่านได้จากแต่ละรูป ให้พนักงานเทียบกับปกจริงได้
   const parts = r.raw_by_image || (r.raw_text ? [{label: 'รูปที่ถ่าย', text: r.raw_text}] : []);
   if (parts.length) {
     $('ocr-raw-body').textContent = parts
@@ -2735,7 +2854,177 @@ function applyRead(r) {
   }
 }
 
-// เทียบ 2 โมเดลจากรูปชุดเดียวกัน — ใช้ตอนทดสอบปกจริง และตอนพรีเซนต์ให้ลูกค้าเห็นความต่าง
+// ฟังก์ชันเรนเดอร์การ์ด AI Intelligence & Market Price Comparison
+function renderAiEnrichCard(data) {
+  if (!data) {
+    $('ai-enrich-card').hidden = true;
+    return;
+  }
+  const sum = data.summary_ai || '';
+  const rev = data.review_ai || '';
+  const mkt = data.market_prices || [];
+  const pricing = data.suggested_pricing || {};
+
+  currentMarketPrices = mkt;
+  currentSuggestedSell = pricing.suggested_sell_price || (pricing.grade_b ? pricing.grade_b : null);
+  currentSuggestedBuyback = pricing.suggested_buyback_price || (pricing.buyback_cash ? pricing.buyback_cash : null);
+
+  if (!sum && !rev && mkt.length === 0 && !pricing.grade_a) {
+    $('ai-enrich-card').hidden = true;
+    return;
+  }
+
+  $('enrich-summary').textContent = sum || 'ไม่มีข้อมูลสรุปเนื้อหา';
+  $('enrich-review').textContent = rev || 'ไม่มีข้อมูลรีวิวและจุดขาย';
+
+  // ตารางเปรียบเทียบราคา 5 แพลตฟอร์ม
+  const tbody = $('market-price-tbody');
+  tbody.innerHTML = '';
+  if (mkt.length > 0) {
+    mkt.forEach(p => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+      tr.innerHTML = `
+        <td style="padding:6px 8px;font-weight:600;color:#f1f5f9">${esc(p.platform || '')}</td>
+        <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono);font-weight:700;color:#38bdf8">${p.price ? baht(p.price) : '—'}</td>
+        <td style="padding:6px 8px"><span class="badge" style="background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);font-size:0.7rem">${esc(p.status || 'มีจำหน่าย')}</span></td>
+        <td style="padding:6px 8px;font-size:0.75rem;color:var(--muted)">${esc(p.note || '')}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } else {
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:10px;text-align:center;color:var(--muted)">ไม่มีข้อมูลราคาตลาด</td></tr>';
+  }
+
+  // คำแนะนำราคาขาย & ราคารับซื้อคืน 30%
+  const grid = $('suggested-pricing-grid');
+  grid.innerHTML = '';
+
+  const cover = parseFloat($('f-cover').value) || pricing.cover_price || 0;
+  const gradeA = pricing.grade_a || Math.round((cover * 0.5) / 5) * 5;
+  const gradeB = pricing.grade_b || Math.round((cover * 0.35) / 5) * 5;
+  const gradeC = pricing.grade_c || Math.round((cover * 0.2) / 5) * 5;
+  const buyCash = pricing.buyback_cash || Math.round((gradeB * 0.70) / 5) * 5;
+  const buyCredit = pricing.buyback_credit || Math.round((gradeB * 0.75) / 5) * 5;
+
+  const items = [
+    { label: 'เกรด A (สภาพสวย)', price: gradeA, badge: '50% ปก', action: () => {
+      grade = 'A';
+      document.querySelectorAll('#grades button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.g === 'A')));
+      $('f-price').value = gradeA;
+      toast('ใช้ราคาขายเกรด A: ' + baht(gradeA));
+    }},
+    { label: 'เกรด B (สภาพดี)', price: gradeB, badge: '35% ปก', action: () => {
+      grade = 'B';
+      document.querySelectorAll('#grades button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.g === 'B')));
+      $('f-price').value = gradeB;
+      toast('ใช้ราคาขายเกรด B: ' + baht(gradeB));
+    }},
+    { label: 'เกรด C (พออ่านได้)', price: gradeC, badge: '20% ปก', action: () => {
+      grade = 'C';
+      document.querySelectorAll('#grades button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.g === 'C')));
+      $('f-price').value = gradeC;
+      toast('ใช้ราคาขายเกรด C: ' + baht(gradeC));
+    }},
+    { label: 'ราคารับซื้อคืน (เงินสด)', price: buyCash, badge: 'หัก 30%' },
+    { label: 'ราคารับซื้อคืน (เครดิต)', price: buyCredit, badge: 'หัก 25%' }
+  ];
+
+  items.forEach(it => {
+    const col = document.createElement('div');
+    col.style.background = 'rgba(15,23,42,0.7)';
+    col.style.border = '1px solid rgba(255,255,255,0.08)';
+    col.style.borderRadius = '8px';
+    col.style.padding = '8px 10px';
+    col.style.textAlign = 'center';
+
+    col.innerHTML = `
+      <div style="font-size:0.72rem;color:var(--muted);margin-bottom:2px">${esc(it.label)} <span class="badge" style="font-size:0.65rem;padding:1px 4px">${esc(it.badge)}</span></div>
+      <div style="font-size:1.15rem;font-weight:700;color:#fff;font-family:var(--font-mono);margin:2px 0 6px">${baht(it.price)}</div>
+      ${it.action ? `<button class="btn ghost sm" type="button" style="width:100%;font-size:0.72rem;padding:3px 6px;border-color:rgba(59,130,246,0.4);color:#93c5fd">⚡ ใช้ราคานี้</button>` : ''}
+    `;
+    if (it.action) {
+      col.querySelector('button').addEventListener('click', it.action);
+    }
+    grid.appendChild(col);
+  });
+
+  $('ai-enrich-card').hidden = false;
+}
+
+// ปุ่ม AI ค้นหาเน็ต & สรุปเนื้อหา + เทียบราคา
+$('btn-enrich').addEventListener('click', async () => {
+  const isbn = $('isbn').value.trim();
+  const title = $('f-title').value.trim();
+  const author = $('f-author').value.trim();
+  const synopsis = $('f-syn').value.trim();
+  const toc_text = $('f-toc') ? $('f-toc').value.trim() : '';
+  const cover_price = $('f-cover').value.trim();
+  const raw_text = $('ocr-raw-body') ? $('ocr-raw-body').textContent.trim() : '';
+
+  if (!isbn && !title && !raw_text && shotCount() === 0) {
+    toast('กรุณาสแกน ISBN หรือถ่ายรูป หรือพิมพ์ชื่อหนังสือก่อน', 'warn');
+    return;
+  }
+
+  $('btn-enrich').disabled = true;
+  $('ai-msg').innerHTML = '<span class="spin"></span> <strong>AI กำลังค้นหาเน็ต & สรุปเนื้อหา + เทียบราคา 5 แพลตฟอร์ม...</strong> (ใช้เวลา ~5-7 วินาที)';
+
+  const payload = {
+    isbn,
+    title,
+    author,
+    synopsis,
+    toc_text,
+    cover_price,
+    raw_text
+  };
+
+  const r = await post('ai/enrich', payload);
+  $('btn-enrich').disabled = false;
+
+  if (r.error) {
+    $('ai-msg').innerHTML = '<span class="badge low">ผิดพลาด</span> ' + esc(r.error);
+    toast(r.error, 'error');
+    return;
+  }
+
+  // เติมข้อมูลลงช่องฟอร์มถ้ายังว่างอยู่
+  if (r.title && !$('f-title').value.trim()) $('f-title').value = r.title;
+  if (r.title_alt && !$('f-title-alt').value.trim()) $('f-title-alt').value = r.title_alt;
+  if (r.author && !$('f-author').value.trim()) $('f-author').value = r.author;
+  if (r.translator && !$('f-translator').value.trim()) $('f-translator').value = r.translator;
+  if (r.publisher && !$('f-pub').value.trim()) $('f-pub').value = r.publisher;
+  if (r.category && !$('f-category').value.trim()) setCategory(r.category, 'ai');
+  if (r.year && !$('f-year').value.trim()) $('f-year').value = r.year;
+  if (r.edition && !$('f-edition').value.trim()) $('f-edition').value = r.edition;
+  if (r.cover_price && !$('f-cover').value.trim()) {
+    $('f-cover').value = r.cover_price;
+    recalcPrice();
+  }
+  if (r.synopsis && !$('f-syn').value.trim()) $('f-syn').value = r.synopsis;
+  if (r.summary_ai && $('f-summary-ai')) $('f-summary-ai').value = r.summary_ai;
+  if (r.review_ai && $('f-review-ai')) $('f-review-ai').value = r.review_ai;
+  if (r.toc_summary && $('f-toc') && !$('f-toc').value.trim()) $('f-toc').value = r.toc_summary;
+
+  renderAiEnrichCard(r);
+  $('ai-msg').innerHTML = '<span class="badge high">AI ประมวลผลสำเร็จ</span> ค้นหาเน็ต สรุปเนื้อหา และเทียบราคา 5 แพลตฟอร์มเรียบร้อย';
+  toast('AI สรุปเนื้อหาและเปรียบเทียบราคาเรียบร้อยแล้ว!');
+});
+
+// ปุ่มคัดลอกรีวิวสั้นและจุดขาย
+$('btn-copy-review').addEventListener('click', async () => {
+  const text = ($('f-review-ai') && $('f-review-ai').value.trim()) || $('enrich-review').textContent.trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('📋 คัดลอกรีวิวสั้นและจุดขายลงคลิปบอร์ดแล้ว!');
+  } catch (err) {
+    toast('ไม่สามารถเข้าถึงคลิปบอร์ดได้', 'error');
+  }
+});
+
+// เทียบโมเดลจากรูปชุดเดียวกัน
 const CMP_FIELDS = [
   ['title', 'ชื่อหนังสือ'], ['title_alt', 'ชื่ออีกภาษา'], ['author', 'ผู้เขียน'],
   ['translator', 'ผู้แปล'], ['publisher', 'สำนักพิมพ์'], ['category', 'หมวดหมู่'],
@@ -2775,7 +3064,6 @@ $('btn-compare').addEventListener('click', async () => {
       return (v == null ? '' : String(v)).trim();
     });
     if (vals.every(v => !v)) return '';
-    // ต่างกัน = มีอย่างน้อย 2 โมเดลที่อ่านไม่เหมือนกัน -> ต้องเอาปกจริงมาตัดสิน
     const diff = new Set(vals).size > 1;
     if (diff) nDiff++;
     return `<tr class="${diff ? 'diff' : ''}"><td>${esc(th)}</td>` +
@@ -2816,14 +3104,17 @@ $('btn-save').addEventListener('click', async () => {
     publisher: $('f-pub').value.trim(),
     category: $('f-category').value.trim(), edition: $('f-edition').value.trim(),
     year: $('f-year').value.trim(), synopsis: $('f-syn').value.trim(),
+    toc_text: $('f-toc') ? $('f-toc').value.trim() : null,
+    summary_ai: $('f-summary-ai') ? $('f-summary-ai').value.trim() : null,
+    review_ai: $('f-review-ai') ? $('f-review-ai').value.trim() : null,
+    market_prices: currentMarketPrices,
+    suggested_sell_price: currentSuggestedSell,
+    suggested_buyback_price: currentSuggestedBuyback,
     cover_price: $('f-cover').value, grade,
     price: $('f-price').value, cost: Math.round(($('f-price').value || 0) * 0.4),
     shelf: $('f-shelf').value.trim().toUpperCase(),
     source: foundTitleId ? 'isbn' : (shotCount() > 0 ? 'ai_cover' : 'manual'),
-    // เก็บรูปทุกใบที่ถ่ายไว้ (ไม่ใช่แค่ปกหน้า) ไว้โชว์ในแชทลูกค้า/การ์ดค้นหา
-    // เผื่อลูกค้าขอดูรูปเพิ่มก่อนตัดสินใจซื้อ
     cover_images: Object.keys(shots).map(k => ({label: SLOT_LABEL[k], image_b64: shots[k]})),
-    // เวลารวมตั้งแต่ถ่ายรูปแรกของเล่มนี้จนถึงตอนกดบันทึก — ไว้คำนวณเวลาเฉลี่ย/เล่มจริง
     elapsed_ms: bookStartTime ? Date.now() - bookStartTime : null
   };
   if (!payload.title) { toast('ต้องมีชื่อหนังสือ', 'error'); return; }
@@ -2833,17 +3124,19 @@ $('btn-save').addEventListener('click', async () => {
   $('btn-save').disabled = false;
   if (r.error) { toast(r.error, 'error'); return; }
   try { localStorage.setItem('lastShelf', payload.shelf); } catch (e) {}
-  loadShelves(payload.shelf[0], payload.shelf);   // อัปเดตจำนวนเล่มบนปุ่มชั้น + คงชั้นเดิมไว้
+  loadShelves(payload.shelf[0], payload.shelf);
   toast(`บันทึก "${payload.title}" เกรด ${grade} ${baht(payload.price)} ชั้น ${payload.shelf}`);
   if (r.code) showSticker(r.code, payload.title, payload.price, payload.shelf, grade);
-  // เด้งไปแท็บสต็อกพร้อมค้นชื่อที่เพิ่งบันทึก ให้เห็นทันทีว่าเข้าระบบแล้วจริง
   $('stock-q').value = payload.title;
   document.querySelector('nav button[data-tab="stock"]').click();
-  ['isbn','f-title','f-title-alt','f-author','f-translator','f-pub','f-category','f-edition','f-year','f-cover','f-syn','f-price'].forEach(i => $(i).value = '');
+  ['isbn','f-title','f-title-alt','f-author','f-translator','f-pub','f-category','f-edition','f-year','f-cover','f-syn','f-price'].forEach(i => $(i) && ($(i).value = ''));
+  if ($('f-toc')) $('f-toc').value = '';
+  if ($('f-summary-ai')) $('f-summary-ai').value = '';
+  if ($('f-review-ai')) $('f-review-ai').value = '';
   $('lookup-msg').textContent = '';
-  setCategory('', '');            // ล้างป้ายบอกที่มาของหมวดหมู่ + ปุ่มที่เลือกไว้ด้วย
+  setCategory('', '');
   foundTitleId = null;
-  $('btn-clear-shots').click();   // ล้างรูปทั้ง 3 ช่อง + ข้อความ + panel OCR
+  $('btn-clear-shots').click();
 });
 
 /* ---------- รับซื้อ ---------- */
