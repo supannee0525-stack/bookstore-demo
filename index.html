@@ -1075,12 +1075,159 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   padding: 12px 0 6px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
-body.is-customer { padding-bottom: 24px; }
-body.is-customer nav { display: none !important; }
-body.is-customer .chat-inputbar {
-  bottom: 0;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
+body.is-customer { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+body.is-customer #staff-nav { display: none !important; }
+body.is-customer #customer-nav { display: flex !important; }
+
+/* Cart Button in Header */
+.btn-cart {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #93c5fd;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
 }
+.btn-cart:hover {
+  background: rgba(59, 130, 246, 0.28);
+  border-color: #60a5fa;
+  color: #fff;
+  transform: translateY(-1px);
+}
+.cart-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 99px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 1.25;
+}
+.btn-add-cart {
+  appearance: none;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.1);
+  color: #93c5fd;
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.btn-add-cart:hover {
+  background: #2563eb;
+  color: #fff;
+}
+
+/* Stepper & Tracking */
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin: 18px 0;
+  padding: 0 10px;
+}
+.stepper::before {
+  content: '';
+  position: absolute;
+  top: 15px; left: 30px; right: 30px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 1;
+}
+.step-item {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  flex: 1;
+}
+.step-dot {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--panel-solid);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  display: grid; place-items: center;
+  margin: 0 auto 6px;
+  font-size: 0.8rem; font-weight: 700;
+  color: var(--muted);
+}
+.step-item.active .step-dot {
+  background: var(--accent);
+  border-color: #60a5fa;
+  color: #fff;
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.5);
+}
+.step-item.completed .step-dot {
+  background: #10b981;
+  border-color: #34d399;
+  color: #fff;
+}
+.step-lbl {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.step-item.active .step-lbl { color: #fff; font-weight: 600; }
+
+/* Cart and Parcel Items */
+.cart-shipping-bar {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  color: #6ee7b7;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cart-items-list {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 220px; overflow-y: auto;
+  margin-bottom: 12px;
+  padding-right: 4px;
+}
+.cart-item-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  gap: 10px;
+}
+.cart-item-row .info { flex: 1; min-width: 0; }
+.cart-item-row .info b { display: block; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+.cart-item-row .info small { font-size: 0.78rem; color: var(--muted); }
+.cart-item-row .price { font-weight: 700; color: #60a5fa; font-size: 0.95rem; }
+.btn-remove-item {
+  background: none; border: none; color: #f87171; font-size: 1.1rem; cursor: pointer; padding: 2px 6px;
+}
+.cart-summary-box {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.86rem;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.cart-summary-box .sum-row { display: flex; justify-content: space-between; color: var(--muted); }
+.cart-summary-box .sum-row.total { color: #fff; font-size: 1rem; font-weight: 700; border-top: 1px solid var(--line); padding-top: 6px; }
+
 .note { font-size: 0.82rem; color: var(--muted); border-left: 2px solid var(--line-active); padding-left: 12px; margin: 16px 0; }
 </style>
 </head>
@@ -1106,7 +1253,12 @@ body.is-customer .chat-inputbar {
       </div>
     </div>
     <div class="header-actions">
-      <div class="user-chip" title="เข้าสู่ระบบในชื่อ nuun">
+      <button id="btn-open-cart" class="btn-cart" title="ดูตะกร้าสินค้า">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+        <span>ตะกร้า</span>
+        <span id="cart-badge" class="cart-badge" hidden>0</span>
+      </button>
+      <div class="user-chip" id="user-chip-btn" title="บัญชีผู้ใช้">
         <span class="user-avatar">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </span>
@@ -1313,43 +1465,110 @@ body.is-customer .chat-inputbar {
 
   <!-- ============ รับซื้อ ============ -->
   <section id="tab-buyback" hidden>
-    <h2>รับซื้อหนังสือ (Buy back)</h2>
-    <p class="hint">ลูกค้าเอาหนังสือมาขาย — ระบบคำนวณราคารับซื้อและกำไรที่จะได้ให้ดูก่อนตกลง</p>
+    <h2>ระบบรับซื้อคืนหนังสือ (Buy Back System — หัก 30%)</h2>
+    <p class="hint">คำนวณราคารับซื้ออัตโนมัติ โดยหัก 30% จากราคาอ้างอิงหรือประวัติการซื้อ พร้อมออกใบปะหน้าพัสดุ (Shipping Label) ส่งเข้าคลัง</p>
 
-    <div class="aibox">
-      <p><strong>1. เล่มที่ซื้อจากร้านเรา?</strong> สแกนสติกเกอร์หลังเล่ม
-        ระบบจะรู้เลยว่าเราขายไปเท่าไหร่ เมื่อไหร่ แล้วคิดราคารับซื้อให้ทันที</p>
-      <button class="btn sm" id="btn-bscan" style="margin-top:8px;width:100%">
-        📷 สแกนสติกเกอร์ร้าน</button>
-      <div class="row" style="margin-top:8px">
-        <input id="b-code" class="mono" placeholder="หรือพิมพ์รหัส เช่น BK-000001"
-               autocapitalize="characters" autocomplete="off">
-        <button class="btn ghost sm" style="flex:none" id="btn-bcode">ค้นหา</button>
+    <!-- กล่องเพิ่มเล่มลงรายการขายคืน -->
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0;font-size:1rem;color:#60a5fa">1. เพิ่มหนังสือที่จะขายคืน</h3>
+        <button class="btn sm ghost" id="btn-open-order-picker" style="font-size:0.78rem">📂 เลือกจากประวัติที่เคยซื้อ</button>
       </div>
-      <div id="bscanner" hidden class="scanner">
+
+      <div class="row" style="margin-bottom:8px">
+        <input id="bb-input-isbn" placeholder="พิมพ์ชื่อหนังสือ หรือกรอกรหัส ISBN" style="flex:2">
+        <input id="bb-input-cover" placeholder="ราคาปก (ถ้ามี)" class="mono" inputmode="decimal" style="flex:1">
+        <button class="btn sm" id="btn-bb-add-item" style="flex:none">+ เพิ่มลงกล่อง</button>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+        <button class="btn ghost sm" id="btn-bscan" style="font-size:0.76rem">📷 สแกนสติกเกอร์ร้าน (BK-xxxxxx)</button>
+        <span class="hint" style="margin:0">หรือระบบคำนวณอัตโนมัติหัก 30%</span>
+      </div>
+      <div id="bscanner" hidden class="scanner" style="margin-top:8px">
         <video id="bscan-video" playsinline muted></video>
         <button class="btn ghost sm" id="btn-bscan-stop">ปิดกล้อง</button>
       </div>
-      <div id="b-lookup-msg" class="hint" style="margin:8px 0 0"></div>
     </div>
 
-    <p class="hint"><strong>2. ไม่มีสติกเกอร์?</strong> กรอกข้อมูลเองด้านล่าง
-      ระบบจะคิดจากราคาปกกับสภาพ</p>
-    <div class="field"><label for="b-title">ชื่อหนังสือ</label><input id="b-title"></div>
-    <div class="row">
-      <div class="field"><label for="b-author">ผู้เขียน</label><input id="b-author"></div>
-      <div class="field"><label for="b-cover">ราคาปก (บาท) *</label><input id="b-cover" class="mono" inputmode="decimal"></div>
-    </div>
-    <div class="field">
-      <label>สภาพ</label>
-      <div class="grades" id="b-grades">
-        <button data-g="A" aria-pressed="false"><b>A</b><span>สภาพดีมาก</span></button>
-        <button data-g="B" aria-pressed="true"><b>B</b><span>สภาพดี</span></button>
-        <button data-g="C" aria-pressed="false"><b>C</b><span>พออ่านได้</span></button>
+    <!-- ตารางหนังสือในกล่องพัสดุ -->
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <h3 style="margin:0 0 10px;font-size:1rem">2. รายการหนังสือในกล่องพัสดุ (<span id="bb-items-count">0</span> เล่ม)</h3>
+      <div id="bb-items-table-wrap">
+        <p class="hint" id="bb-items-empty" style="text-align:center;padding:14px 0">ยังไม่มีหนังสือในกล่องพัสดุ — กรุณาพิมพ์ชื่อหรือเลือกจากประวัติซื้อด้านบน</p>
+      </div>
+
+      <!-- กล่องสรุปยอดรับซื้อ -->
+      <div id="bb-summary-box" class="cart-summary-box" style="margin-top:12px" hidden>
+        <div class="sum-row"><span>ยอดราคาอ้างอิงรวม:</span> <span id="bb-sum-ref" class="mono">฿0</span></div>
+        <div class="sum-row" style="color:#6ee7b7"><span>หักค่าเสื่อมและดำเนินการ (30%):</span> <span id="bb-sum-deduct" class="mono">-30%</span></div>
+        <div class="sum-row total" style="color:#34d399">
+          <span>ราคารับซื้อคืนเงินสด (70%):</span> <span id="bb-sum-cash" class="mono">฿0</span>
+        </div>
+        <div class="sum-row" style="color:#60a5fa;font-size:0.84rem">
+          <span>หรือรับเป็น Store Credit (75% โบนัส +5%):</span> <span id="bb-sum-credit" class="mono">฿0</span>
+        </div>
       </div>
     </div>
-    <button class="btn ghost" id="btn-quote" style="width:100%">คำนวณราคารับซื้อ</button>
-    <div id="quote"></div>
+
+    <!-- ฟอร์มข้อมูลผู้ส่งและช่องทางรับเงิน -->
+    <div class="card" id="bb-sender-form-card" style="padding:16px" hidden>
+      <h3 style="margin:0 0 10px;font-size:1rem">3. ข้อมูลผู้ส่งและช่องทางรับเงิน</h3>
+      <div class="fld-row">
+        <label class="fld">ชื่อผู้ส่ง * <input id="bb-sender-name" placeholder="ชื่อ-นามสกุล"></label>
+        <label class="fld">เบอร์โทรศัพท์ติดต่อ * <input id="bb-sender-phone" placeholder="08x-xxx-xxxx" inputmode="tel"></label>
+      </div>
+      <label class="fld">ที่อยู่ผู้ส่ง (สำหรับส่งคืนกรณีตรวจสภาพไม่ผ่าน) *
+        <textarea id="bb-sender-addr" rows="2" placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด รหัสไปรษณีย์"></textarea>
+      </label>
+      <div class="fld-row">
+        <label class="fld">ช่องทางรับเงิน *
+          <select id="bb-payout-method" class="fld-select">
+            <option value="promptpay">📱 โอนผ่าน PromptPay (เงินสด)</option>
+            <option value="bank">🏦 โอนเข้าบัญชีธนาคาร (เงินสด)</option>
+            <option value="store_credit">🎁 รับเป็น Store Credit ซื้อหนังสือในร้าน (+โบนัส 5%)</option>
+          </select>
+        </label>
+        <label class="fld">เบอร์พร้อมเพย์ / เลขบัญชี *
+          <input id="bb-payout-acc" placeholder="เบอร์โทร / เลขบัตร ปชช. / เลขบัญชี">
+        </label>
+      </div>
+      <label class="fld" id="bb-bank-name-fld" hidden>ชื่อธนาคาร <input id="bb-bank-name" placeholder="เช่น กสิกรไทย, ไทยพาณิชย์"></label>
+      <p class="err-line" id="bb-submit-err" hidden></p>
+      <button class="btn" id="btn-bb-submit" style="width:100%;margin-top:10px">📦 ยืนยันคำขอ & สร้างใบปะหน้าพัสดุ (Shipping Label)</button>
+    </div>
+
+    <!-- กล่องสำเร็จและลิงก์ใบปะหน้า -->
+    <div id="bb-success-box" class="card" style="padding:20px;text-align:center;border-color:#10b981;background:rgba(16,185,129,0.08)" hidden>
+      <div style="font-size:2rem;margin-bottom:6px">🎉</div>
+      <h3 style="margin:0 0 4px;color:#34d399">สร้างคำขอขายคืนสำเร็จแล้ว!</h3>
+      <p class="hint" style="margin:0 0 12px">รหัสติดตามพัสดุของคุณคือ</p>
+      <div id="bb-success-code" class="mono" style="font-size:1.6rem;font-weight:700;letter-spacing:1px;color:#fff;background:rgba(0,0,0,0.3);padding:8px 16px;border-radius:8px;display:inline-block;margin-bottom:16px"></div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <a id="bb-btn-open-label" target="_blank" class="btn" style="text-decoration:none">🖨️ เปิดพิมพ์ใบปะหน้าพัสดุ (Shipping Label)</a>
+        <button class="btn ghost" id="bb-btn-track-new">🚚 ติดตามสถานะคำขอนี้</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ติดตามสถานะ (Tracking) ============ -->
+  <section id="tab-tracking" hidden>
+    <h2>ติดตามสถานะพัสดุและคำสั่งซื้อ</h2>
+    <p class="hint">ตรวจสอบสถานะการสั่งซื้อหนังสือ (รอชำระ, จัดส่ง) และสถานะการขายคืน (รอรับหนังสือ, ตรวจสภาพ, โอนเงิน)</p>
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div class="row">
+        <input id="tracking-input" class="mono" placeholder="พิมพ์รหัส BB-xxx, ORD-xxx หรือเบอร์โทร" style="font-size:0.95rem">
+        <button class="btn sm" id="btn-tracking-search" style="flex:none">ค้นหาสถานะ</button>
+      </div>
+      <div id="tracking-result-box" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- ============ บัญชีของฉัน (Account) ============ -->
+  <section id="tab-account" hidden>
+    <h2>บัญชีสมาชิกของฉัน</h2>
+    <p class="hint">ข้อมูลสมาชิก ที่อยู่จัดส่ง เครดิตร้าน และประวัติการทำรายการ</p>
+    <div id="account-page-content"></div>
   </section>
 
   <!-- ============ คำสั่งซื้อ (หลังบ้าน) ============ -->
@@ -1376,7 +1595,8 @@ body.is-customer .chat-inputbar {
 
 </main>
 
-<nav>
+<!-- แถบนำทางสำหรับพนักงาน (Staff Nav) -->
+<nav id="staff-nav">
   <div class="wrap" role="tablist">
     <button role="tab" aria-selected="true" data-tab="search">
       <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4z"/></svg>คุยกับ AI</button>
@@ -1385,12 +1605,26 @@ body.is-customer .chat-inputbar {
     <button role="tab" aria-selected="false" data-tab="stockin">
       <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><path d="M17 15v6M14 18h6"/></svg>ลงสต็อก</button>
     <button role="tab" aria-selected="false" data-tab="buyback">
-      <svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5-9-5z"/><path d="M3 15l9 5 9-5"/></svg>รับซื้อ</button>
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5-9-5z"/><path d="M3 15l9 5 9-5"/></svg>รับซื้อ 30%</button>
     <button role="tab" aria-selected="false" data-tab="orders">
       <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 12h7M9 16h7"/></svg>คำสั่งซื้อ
       <span class="tab-dot" id="orders-badge" hidden></span></button>
     <button role="tab" aria-selected="false" data-tab="stats">
       <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>ภาพรวม</button>
+  </div>
+</nav>
+
+<!-- แถบนำทางสำหรับลูกค้า (Customer Nav) -->
+<nav id="customer-nav" hidden>
+  <div class="wrap" role="tablist" style="grid-template-columns: repeat(4, 1fr); max-width: 480px">
+    <button role="tab" aria-selected="true" data-tab="search">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4z"/></svg>ค้นหา/แชท</button>
+    <button role="tab" aria-selected="false" data-tab="buyback">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5-9-5z"/><path d="M3 15l9 5 9-5"/></svg>ขายคืน 30%</button>
+    <button role="tab" aria-selected="false" data-tab="tracking">
+      <svg viewBox="0 0 24 24"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>ติดตามพัสดุ</button>
+    <button role="tab" aria-selected="false" data-tab="account">
+      <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>บัญชีของฉัน</button>
   </div>
 </nav>
 
@@ -1464,6 +1698,74 @@ body.is-customer .chat-inputbar {
     <button class="btn ghost" id="btn-pay-close" style="width:100%;margin-top:10px">ปิดหน้าต่าง</button>
   </div>
 </div>
+
+<!-- กล่องตะกร้าสินค้า (Cart Drawer/Modal) -->
+<div id="cart-box" hidden>
+  <div class="sticker-panel edit-panel" style="max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h3 style="margin:0">🛒 ตะกร้าสินค้า</h3>
+      <button class="btn ghost sm" id="btn-cart-close" style="padding:4px 10px">ปิด ✕</button>
+    </div>
+    <div id="cart-shipping-bar" class="cart-shipping-bar">
+      <span>🚚 สั่งซื้อครบ ฿500 ส่งฟรี! (ปัจจุบันค่าส่ง ฿40)</span>
+    </div>
+    <div id="cart-items-list" class="cart-items-list">
+      <p class="hint" style="text-align:center;padding:20px 0">ไม่มีสินค้าในตะกร้า</p>
+    </div>
+    <div id="cart-summary" class="cart-summary-box"></div>
+    <div id="cart-checkout-form" style="margin-top:14px">
+      <h4 style="margin:0 0 8px;font-size:0.95rem;color:#60a5fa">ข้อมูลจัดส่งและชำระเงิน</h4>
+      <div class="fld-row">
+        <label class="fld">ชื่อผู้รับ * <input id="cart-name" placeholder="ชื่อ-นามสกุล"></label>
+        <label class="fld">เบอร์โทร * <input id="cart-phone" placeholder="08x-xxx-xxxx" inputmode="tel"></label>
+      </div>
+      <label class="fld">ที่อยู่จัดส่ง *
+        <textarea id="cart-address" rows="2" placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด รหัสไปรษณีย์"></textarea>
+      </label>
+      <label class="fld">วิธีชำระเงิน *
+        <select id="cart-payment-method" class="fld-select">
+          <option value="promptpay">📱 สแกน QR PromptPay ทันที (สะดวกที่สุด)</option>
+          <option value="credit_card">💳 บัตรเครดิต / เดบิต</option>
+          <option value="mobile_banking">🏦 โอนผ่าน Mobile Banking</option>
+        </select>
+      </label>
+      <div id="cart-card-mock" hidden style="background:rgba(255,255,255,0.04);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px">
+        <div class="fld-row">
+          <label class="fld">หมายเลขบัตร <input id="card-num" placeholder="4xxx xxxx xxxx xxxx" maxlength="19"></label>
+          <label class="fld">หมดอายุ <input id="card-exp" placeholder="MM/YY" maxlength="5"></label>
+          <label class="fld">CVV <input id="card-cvv" placeholder="123" maxlength="3"></label>
+        </div>
+      </div>
+      <label class="fld">หมายเหตุถึงร้าน <input id="cart-note" placeholder="ข้อความเพิ่มเติม"></label>
+      <p class="err-line" id="cart-err" hidden></p>
+      <button class="btn" id="btn-cart-submit" style="width:100%;margin-top:10px">ยืนยันสั่งซื้อและชำระเงิน</button>
+    </div>
+  </div>
+</div>
+
+<!-- กล่องข้อมูลสมาชิก (Account Modal) -->
+<div id="account-box" hidden>
+  <div class="sticker-panel edit-panel" style="max-width:540px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">👤 ข้อมูลสมาชิก</h3>
+      <button class="btn ghost sm" id="btn-account-close" style="padding:4px 10px">ปิด ✕</button>
+    </div>
+    <div id="account-modal-body"></div>
+  </div>
+</div>
+
+<!-- กล่องเลือกหนังสือจากประวัติซื้อ (Order Pick Modal) -->
+<div id="order-pick-box" hidden>
+  <div class="sticker-panel edit-panel" style="max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">เลือกจากประวัติการสั่งซื้อ</h3>
+      <button class="btn ghost sm" id="btn-order-pick-close" style="padding:4px 10px">ปิด ✕</button>
+    </div>
+    <p class="hint">เลือกหนังสือที่เคยซื้อไป เพื่อคำนวณราคาขายคืนหัก 30% จากราคาที่เคยซื้อจริง</p>
+    <div id="order-pick-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</div>
+
 <div id="sticker-print-host"></div>
 
 <script>
@@ -1510,74 +1812,89 @@ document.addEventListener('scroll', () => {
 }, {passive: true});
 
 /* ---------- สิทธิ์ผู้ใช้ ---------- */
-// บัญชีลูกค้าเห็นแค่แท็บแชท ส่วนการกันจริงอยู่ที่เซิร์ฟเวอร์ (ตอบ 403 ทุก endpoint หลังบ้าน)
-// ตรงนี้แค่เก็บของที่ใช้ไม่ได้ให้พ้นตา ไม่ใช่ระบบความปลอดภัย
+// บัญชีลูกค้าเห็นแท็บลูกค้า (ค้นหา, ขายคืน, ติดตามพัสดุ, บัญชี)
+let CURRENT_USER = null;
+
 get('me').then(me => {
+  CURRENT_USER = me;
   const userNameEl = document.querySelector('.user-name');
   const userChipEl = document.querySelector('.user-chip');
-  if (userNameEl && me.user) {
-    userNameEl.textContent = me.role === 'customer' ? 'ลูกค้า' : me.user;
+  if (userNameEl && (me.user || me.name || me.email)) {
+    userNameEl.textContent = me.role === 'customer' ? (me.name || me.email || 'ลูกค้า') : me.user;
   }
   if (userChipEl) {
     userChipEl.title = me.role === 'customer'
-      ? 'เข้าสู่ระบบในโหมดลูกค้าทั่วไป'
+      ? 'เข้าสู่ระบบในโหมดลูกค้าทั่วไป (แตะเพื่อดูบัญชี)'
       : `เข้าสู่ระบบในชื่อ ${me.user || 'nuun'} (พนักงาน)`;
   }
 
-  if (me.role !== 'customer') return;
+  if (me.role === 'customer') {
+    document.body.classList.add('is-customer');
+    if ($('staff-nav')) $('staff-nav').hidden = true;
+    if ($('customer-nav')) $('customer-nav').hidden = false;
+    ['stock', 'stockin', 'orders', 'stats'].forEach(t => {
+      const el = $('tab-' + t);
+      if (el) el.remove();
+    });
 
-  // ปรับแต่งอินเทอร์เฟซสำหรับลูกค้าโดยเฉพาะ
-  document.body.classList.add('is-customer');
+    const badgeLive = document.querySelector('.badge-live');
+    if (badgeLive) {
+      badgeLive.innerHTML = '<span class="live-dot" style="background:#38bdf8;box-shadow:0 0 10px #38bdf8"></span>โหมดลูกค้า · ซื้อ-ขายคืน';
+      badgeLive.style.borderColor = 'rgba(56, 189, 248, 0.35)';
+      badgeLive.style.background = 'rgba(56, 189, 248, 0.12)';
+      badgeLive.style.color = '#7dd3fc';
+    }
+    const brandSub = document.querySelector('.brand p');
+    if (brandSub) {
+      brandSub.textContent = 'ค้นหา สั่งซื้อ และขายคืนหนังสือมือสองออนไลน์';
+    }
+    const btnLogout = $('btn-logout');
+    if (btnLogout) {
+      btnLogout.title = 'ออกจากระบบ / สลับบัญชี';
+      const span = btnLogout.querySelector('span');
+      if (span) span.textContent = 'สลับบัญชี';
+    }
 
-  // นำแท็บหลังบ้านและแถบนำทางด้านล่างออก
-  const navEl = document.querySelector('nav');
-  if (navEl) navEl.remove();
-  ['stock', 'stockin', 'buyback', 'orders', 'stats'].forEach(t => {
-    const el = $('tab-' + t);
-    if (el) el.remove();
-  });
-
-  // ปรับแต่งข้อมูลบน Header
-  const badgeLive = document.querySelector('.badge-live');
-  if (badgeLive) {
-    badgeLive.innerHTML = '<span class="live-dot" style="background:#38bdf8;box-shadow:0 0 10px #38bdf8"></span>โหมดลูกค้า · ค้นหา & สั่งซื้อ';
-    badgeLive.style.borderColor = 'rgba(56, 189, 248, 0.35)';
-    badgeLive.style.background = 'rgba(56, 189, 248, 0.12)';
-    badgeLive.style.color = '#7dd3fc';
+    const mp = document.querySelector('.mode-pick');
+    if (mp) mp.remove();
+    const h = document.querySelector('#tab-search h2');
+    if (h) h.textContent = 'ถามหาหนังสือกับร้านได้เลย';
+    const hint = document.querySelector('#tab-search .hint');
+    if (hint) hint.textContent = 'ถามได้ทั้งชื่อเรื่อง แนวหนังสือ สภาพ ปีพิมพ์ หรือขอเรื่องย่อ';
+  } else {
+    if ($('staff-nav')) $('staff-nav').hidden = false;
+    if ($('customer-nav')) $('customer-nav').hidden = true;
   }
-  const brandSub = document.querySelector('.brand p');
-  if (brandSub) {
-    brandSub.textContent = 'ค้นหา สอบถามข้อมูล และสั่งซื้อหนังสือออนไลน์';
-  }
-  const btnLogout = $('btn-logout');
-  if (btnLogout) {
-    btnLogout.title = 'ออกจากระบบ / สลับเข้าโหมดพนักงาน';
-    const span = btnLogout.querySelector('span');
-    if (span) span.textContent = 'สลับเข้าพนักงาน';
-  }
-
-  const mp = document.querySelector('.mode-pick');
-  if (mp) mp.remove();                      // ไม่ให้สลับไปโหมดพนักงาน
-  const h = document.querySelector('#tab-search h2');
-  if (h) h.textContent = 'ถามหาหนังสือกับร้านได้เลย';
-  const hint = document.querySelector('#tab-search .hint');
-  if (hint) hint.textContent = 'ถามได้ทั้งชื่อเรื่อง แนวหนังสือ สภาพ ปีพิมพ์ หรือขอเรื่องย่อ';
 }).catch(() => {});
 
-/* ---------- tabs ---------- */
-document.querySelectorAll('nav button').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('nav button').forEach(x =>
-      x.setAttribute('aria-selected', String(x === b)));
-    ['search','stock','stockin','buyback','orders','stats'].forEach(t =>
-      $('tab-' + t).hidden = (t !== b.dataset.tab));
-    if (b.dataset.tab === 'stats') loadStats();
-    if (b.dataset.tab === 'orders') loadOrders();
-    if (b.dataset.tab === 'stock') loadStock();
-    // ปิดกล้องถ้าออกจากแท็บลงสต็อก ไม่ให้ค้างทำงานเบื้องหลัง
-    if (b.dataset.tab !== 'stockin' && typeof stopScan === 'function') stopScan();
-    window.scrollTo(0, 0);
+/* ---------- tabs navigation ---------- */
+function switchTab(tabId) {
+  document.querySelectorAll('nav button').forEach(x =>
+    x.setAttribute('aria-selected', String(x.dataset.tab === tabId)));
+  const allTabs = ['search', 'stock', 'stockin', 'buyback', 'orders', 'stats', 'tracking', 'account'];
+  allTabs.forEach(t => {
+    const el = $('tab-' + t);
+    if (el) el.hidden = (t !== tabId);
   });
+  if (tabId === 'stats') loadStats();
+  if (tabId === 'orders') loadOrders();
+  if (tabId === 'stock') loadStock();
+  if (tabId === 'account') loadAccountPage();
+  if (tabId === 'buyback') initBuybackTab();
+  if (tabId !== 'stockin' && typeof stopScan === 'function') stopScan();
+  window.scrollTo(0, 0);
+}
+
+document.querySelectorAll('nav button').forEach(b => {
+  b.addEventListener('click', () => switchTab(b.dataset.tab));
+});
+
+$('user-chip-btn').addEventListener('click', () => {
+  if (document.body.classList.contains('is-customer')) {
+    switchTab('account');
+  } else {
+    toast(`เข้าสู่ระบบในชื่อ ${CURRENT_USER?.user || 'พนักงาน'}`);
+  }
 });
 
 /* ---------- การ์ดหนังสือ (ใช้ร่วมกันในแชท) ---------- */
@@ -1620,15 +1937,15 @@ function bookCardHTML(t) {
             <span class="shelf mono">ชั้น ${esc(c.shelf)}</span>
             <span class="spacer"></span>
             ${c.status === 'in_stock'
-              ? `<button class="btn sm" data-sell="${c.id}">ขายเล่มนี้</button>`
+              ? `<button class="btn-add-cart" data-cart="${c.id}" data-title="${esc(t.title)}" data-grade="${c.grade}" data-price="${c.price}" data-cover="${esc(t.cover_path || '')}">+ ตะกร้า</button>
+                 <button class="btn sm" data-sell="${c.id}">ขายเล่มนี้</button>`
               : '<span class="sold-tag">ขายแล้ว</span>'}
           </div>`).join('')}
       </div>
     </div>`;
 }
 
-// การ์ดฉบับลูกค้า — ไม่มีชั้นวาง ไม่มีต้นทุน ไม่มีปุ่มแก้ไข มีแต่ปุ่มจอง
-// (เซิร์ฟเวอร์ก็ไม่ส่งข้อมูลหลังร้านมาให้อยู่แล้ว ตัวนี้เป็นแค่การแสดงผล)
+// การ์ดฉบับลูกค้า — ไม่มีชั้นวาง ไม่มีต้นทุน ไม่มีปุ่มแก้ไข มีแต่ปุ่มตะกร้าและสั่งซื้อ
 function customerCardHTML(t) {
   return `
     <div class="card">
@@ -1655,8 +1972,10 @@ function customerCardHTML(t) {
             <span class="grade ${c.grade}">${c.grade}</span>
             <span class="price">${baht(c.price)}</span>
             <span class="spacer"></span>
+            <button class="btn-add-cart" data-cart="${c.id}"
+              data-title="${esc(t.title)}" data-grade="${c.grade}" data-price="${c.price}" data-cover="${esc(t.cover_path || '')}">+ ตะกร้า</button>
             <button class="btn sm" data-order="${c.id}"
-              data-title="${esc(t.title)}" data-grade="${c.grade}" data-price="${c.price}">สั่งซื้อเล่มนี้</button>
+              data-title="${esc(t.title)}" data-grade="${c.grade}" data-price="${c.price}">สั่งซื้อทันที</button>
           </div>`).join('')}
       </div>
     </div>`;
@@ -1688,8 +2007,19 @@ $('stock-q').addEventListener('input', () => {
   clearTimeout(stockTimer); stockTimer = setTimeout(loadStock, 400);
 });
 
-// ปุ่ม "ขายเล่มนี้" ในแท็บสต็อก
+// ปุ่ม "ขายเล่มนี้" และ "+ ตะกร้า" ในแท็บสต็อก
 $('stock-results').addEventListener('click', async e => {
+  const cartBtn = e.target.closest('[data-cart]');
+  if (cartBtn) {
+    addToCart({
+      copy_id: Number(cartBtn.dataset.cart),
+      title: cartBtn.dataset.title,
+      grade: cartBtn.dataset.grade,
+      price: Number(cartBtn.dataset.price),
+      cover: cartBtn.dataset.cover || ''
+    });
+    return;
+  }
   const editBtn = e.target.closest('[data-edit]');
   if (editBtn) { openEditModal(Number(editBtn.dataset.edit)); return; }
   const btn = e.target.closest('[data-sell]');
@@ -1797,8 +2127,19 @@ $('btn-pay-simulate').addEventListener('click', async () => {
   checkPayStatus();
 });
 
-// ปุ่ม "ขายเล่มนี้"/"จองเล่มนี้" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
+// ปุ่ม "ขายเล่มนี้"/"จองเล่มนี้"/"+ ตะกร้า" ถูกแทรกเข้ามาทีหลังตลอด (แชท) — ใช้ event delegation ตัวเดียวจับทั้งหมด
 $('chat-log').addEventListener('click', async e => {
+  const cartBtn = e.target.closest('[data-cart]');
+  if (cartBtn) {
+    addToCart({
+      copy_id: Number(cartBtn.dataset.cart),
+      title: cartBtn.dataset.title,
+      grade: cartBtn.dataset.grade,
+      price: Number(cartBtn.dataset.price),
+      cover: cartBtn.dataset.cover || ''
+    });
+    return;
+  }
   const orderBtn = e.target.closest('[data-order]');
   if (orderBtn) { openOrderModal(orderBtn); return; }
   const editBtn = e.target.closest('[data-edit]');
@@ -2744,12 +3085,755 @@ $('orders-list').addEventListener('click', async e => {
   }
   btn.disabled = true;
   const r = await post('order-update', {order_id: id, action: act, tracking: tracking});
-  if (r.error) { toast(r.error, 'error'); btn.disabled = false; return; }
   toast(act === 'pay' ? 'ยืนยันรับเงินแล้ว บันทึกยอดขายให้เรียบร้อย'
       : act === 'ship' ? 'บันทึกจัดส่งเรียบร้อย'
       : 'ยกเลิกคำสั่งซื้อ คืนเล่มเข้าสต็อกแล้ว');
   loadOrders();
 });
+
+/* ============================================================
+   1. ตะกร้าสินค้า (CART & MULTI-ITEM CHECKOUT)
+   ============================================================ */
+let CART = [];
+try {
+  CART = JSON.parse(localStorage.getItem('bookstore_cart') || '[]');
+} catch (e) { CART = []; }
+
+function saveCart() {
+  try { localStorage.setItem('bookstore_cart', JSON.stringify(CART)); } catch (e) {}
+  updateCartBadge();
+}
+
+function updateCartBadge() {
+  const badge = $('cart-badge');
+  if (!badge) return;
+  const count = CART.length;
+  badge.textContent = count;
+  badge.hidden = (count === 0);
+}
+updateCartBadge();
+
+function addToCart(item) {
+  if (CART.some(x => x.copy_id === item.copy_id)) {
+    toast(`"${item.title}" อยู่ในตะกร้าแล้วค่ะ`);
+    openCartModal();
+    return;
+  }
+  CART.push(item);
+  saveCart();
+  toast(`เพิ่ม "${item.title}" (${baht(item.price)}) ลงตะกร้าแล้ว`);
+  openCartModal();
+}
+
+window.removeFromCart = function(copyId) {
+  CART = CART.filter(x => x.copy_id !== copyId);
+  saveCart();
+  renderCart();
+};
+
+async function renderCart() {
+  const listEl = $('cart-items-list');
+  const sumEl = $('cart-summary');
+  const shipBar = $('cart-shipping-bar');
+  const errEl = $('cart-err');
+  if (errEl) errEl.hidden = true;
+
+  if (CART.length === 0) {
+    listEl.innerHTML = '<p class="hint" style="text-align:center;padding:24px 0">ไม่มีสินค้าในตะกร้า — แตะ "+ ตะกร้า" ที่หนังสือเพื่อสั่งซื้อ</p>';
+    sumEl.innerHTML = '';
+    if (shipBar) shipBar.innerHTML = '<span>🚚 สั่งซื้อครบ ฿500 ส่งฟรี! (ปัจจุบันค่าส่ง ฿40)</span>';
+    return;
+  }
+
+  listEl.innerHTML = '<p class="hint" style="text-align:center;padding:12px 0"><span class="spin"></span> กำลังคำนวณราคาและค่าจัดส่ง...</p>';
+  try {
+    const quote = await post('cart/quote', { items: CART.map(x => x.copy_id) });
+    if (quote.items) {
+      listEl.innerHTML = quote.items.map(it => `
+        <div class="cart-item-row">
+          <div class="info">
+            <b>${esc(it.title)}</b>
+            <small>สภาพ ${esc(it.grade || 'B')} · รหัสเล่ม <span class="mono">${esc(it.code || '')}</span></small>
+          </div>
+          <div class="price mono">${baht(it.price)}</div>
+          <button class="btn-remove-item" onclick="removeFromCart(${it.copy_id})" title="ลบออก">✕</button>
+        </div>
+      `).join('');
+
+      if (shipBar) {
+        if (quote.free_shipping) {
+          shipBar.innerHTML = '<span style="color:#34d399">🎉 ยอดครบ ฿500 แล้ว! <b>ฟรีค่าจัดส่ง</b></span>';
+        } else {
+          const needMore = Math.max(0, 500 - quote.subtotal);
+          shipBar.innerHTML = `<span>🚚 ซื้อเพิ่มอีก <b>${baht(needMore)}</b> เพื่อรับสิทธิ์ส่งฟรี! (ค่าส่งปกติ ฿${quote.shipping_cost})</span>`;
+        }
+      }
+
+      sumEl.innerHTML = `
+        <div class="sum-row"><span>ยอดรวมหนังสือ (${quote.item_count} เล่ม):</span> <span class="mono">${baht(quote.subtotal)}</span></div>
+        <div class="sum-row"><span>ค่าจัดส่ง:</span> <span class="mono">${quote.shipping_cost === 0 ? '<b style="color:#34d399">ฟรี</b>' : baht(quote.shipping_cost)}</span></div>
+        <div class="sum-row total"><span>ยอดชำระสุทธิ:</span> <span class="mono" style="color:#60a5fa">${baht(quote.total_amount)}</span></div>
+      `;
+    }
+  } catch (err) {
+    listEl.innerHTML = CART.map(it => `
+      <div class="cart-item-row">
+        <div class="info"><b>${esc(it.title)}</b><small>สภาพ ${esc(it.grade)}</small></div>
+        <div class="price mono">${baht(it.price)}</div>
+        <button class="btn-remove-item" onclick="removeFromCart(${it.copy_id})">✕</button>
+      </div>
+    `).join('');
+  }
+
+  if (CURRENT_USER) {
+    if (!$('cart-name').value && CURRENT_USER.name) $('cart-name').value = CURRENT_USER.name;
+    if (!$('cart-phone').value && CURRENT_USER.phone) $('cart-phone').value = CURRENT_USER.phone;
+    if (!$('cart-address').value && CURRENT_USER.address) $('cart-address').value = CURRENT_USER.address;
+  }
+}
+
+function openCartModal() {
+  $('cart-box').hidden = false;
+  renderCart();
+}
+function closeCartModal() {
+  $('cart-box').hidden = true;
+}
+$('btn-open-cart').addEventListener('click', openCartModal);
+$('btn-cart-close').addEventListener('click', closeCartModal);
+$('cart-box').addEventListener('click', e => { if (e.target === $('cart-box')) closeCartModal(); });
+
+$('cart-payment-method').addEventListener('change', () => {
+  $('cart-card-mock').hidden = ($('cart-payment-method').value !== 'credit_card');
+});
+
+$('btn-cart-submit').addEventListener('click', async () => {
+  const errEl = $('cart-err');
+  errEl.hidden = true;
+  if (CART.length === 0) {
+    errEl.textContent = 'ไม่มีสินค้าในตะกร้า';
+    errEl.hidden = false;
+    return;
+  }
+  const name = $('cart-name').value.trim();
+  const phone = $('cart-phone').value.trim();
+  const address = $('cart-address').value.trim();
+  const paymentMethod = $('cart-payment-method').value;
+  const note = $('cart-note').value.trim();
+
+  if (!name || !phone || !address) {
+    errEl.textContent = 'กรุณากรอกชื่อผู้รับ เบอร์โทรศัพท์ และที่อยู่จัดส่งให้ครบถ้วน';
+    errEl.hidden = false;
+    return;
+  }
+
+  $('btn-cart-submit').disabled = true;
+  try {
+    const r = await post('cart/checkout', {
+      items: CART.map(x => x.copy_id),
+      name, phone, address,
+      payment_method: paymentMethod,
+      note
+    });
+    $('btn-cart-submit').disabled = false;
+    if (r.error) {
+      errEl.textContent = r.error;
+      errEl.hidden = false;
+      return;
+    }
+
+    CART = [];
+    saveCart();
+    closeCartModal();
+
+    toast(`สั่งซื้อสำเร็จ! เลขที่คำสั่งซื้อ ${r.order_code}`);
+    addMsg('bot', `รับคำสั่งซื้อเรียบร้อยแล้วค่ะ 🎉<br>รหัสคำสั่งซื้อ <span class="mono">${esc(r.order_code)}</span>`
+      + `<br>รวม <b>${r.item_count} เล่ม</b> · ยอดชำระสุทธิ <b>${baht(r.total_amount)}</b>`
+      + (paymentMethod === 'promptpay' ? '<br>เปิดหน้าต่าง QR PromptPay เพื่อชำระเงิน...' : '<br>ระบบบันทึกคำสั่งซื้อเรียบร้อยแล้วค่ะ'));
+
+    if (paymentMethod === 'promptpay') {
+      openPayModal(r.order_id, `คำสั่งซื้อ ${r.order_code}`);
+    } else {
+      switchTab('tracking');
+      $('tracking-input').value = r.order_code;
+      doSearchTracking();
+    }
+  } catch (e) {
+    $('btn-cart-submit').disabled = false;
+    errEl.textContent = 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์';
+    errEl.hidden = false;
+  }
+});
+
+/* ============================================================
+   2. ระบบรับซื้อคืน (BUY BACK SYSTEM — หัก 30% & SHIPPING LABEL)
+   ============================================================ */
+let BB_ITEMS = [];
+
+function initBuybackTab() {
+  if (CURRENT_USER) {
+    if (!$('bb-sender-name').value && CURRENT_USER.name) $('bb-sender-name').value = CURRENT_USER.name;
+    if (!$('bb-sender-phone').value && CURRENT_USER.phone) $('bb-sender-phone').value = CURRENT_USER.phone;
+    if (!$('bb-sender-addr').value && CURRENT_USER.address) $('bb-sender-addr').value = CURRENT_USER.address;
+  }
+  renderBuybackManifest();
+}
+
+function renderBuybackManifest() {
+  const wrap = $('bb-items-table-wrap');
+  const countEl = $('bb-items-count');
+  const sumBox = $('bb-summary-box');
+  const senderCard = $('bb-sender-form-card');
+  const count = BB_ITEMS.length;
+
+  countEl.textContent = count;
+  if (count === 0) {
+    wrap.innerHTML = '<p class="hint" id="bb-items-empty" style="text-align:center;padding:14px 0">ยังไม่มีหนังสือในกล่องพัสดุ — กรุณาพิมพ์ชื่อ/ISBN หรือเลือกจากประวัติซื้อด้านบน</p>';
+    sumBox.hidden = true;
+    senderCard.hidden = true;
+    return;
+  }
+
+  let totalRef = 0;
+  let totalCash = 0;
+  let totalCredit = 0;
+
+  wrap.innerHTML = `
+    <div class="scroll-x">
+      <table>
+        <thead>
+          <tr>
+            <th>ชื่อหนังสือ</th>
+            <th class="num">ราคาอ้างอิง</th>
+            <th class="num">หัก 30%</th>
+            <th class="num">เงินสด (70%)</th>
+            <th class="num">Store Credit (75%)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${BB_ITEMS.map((it, idx) => {
+            totalRef += it.reference_price;
+            totalCash += it.offer_price;
+            const creditOffer = Math.round(it.reference_price * 0.75);
+            totalCredit += creditOffer;
+            return `
+              <tr>
+                <td><b>${esc(it.title)}</b>${it.isbn ? `<br><small class="mono" style="color:var(--muted)">ISBN: ${esc(it.isbn)}</small>` : ''}</td>
+                <td class="num mono">${baht(it.reference_price)}</td>
+                <td class="num mono" style="color:#f87171">-30%</td>
+                <td class="num mono" style="color:#34d399;font-weight:600">${baht(it.offer_price)}</td>
+                <td class="num mono" style="color:#60a5fa">${baht(creditOffer)}</td>
+                <td style="text-align:center"><button class="btn-remove-item" onclick="removeBuybackItem(${idx})" title="ลบออก">✕</button></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  $('bb-sum-ref').textContent = baht(totalRef);
+  $('bb-sum-cash').textContent = baht(totalCash);
+  $('bb-sum-credit').textContent = baht(totalCredit);
+
+  sumBox.hidden = false;
+  senderCard.hidden = false;
+}
+
+window.removeBuybackItem = function(index) {
+  BB_ITEMS.splice(index, 1);
+  renderBuybackManifest();
+};
+
+$('btn-bb-add-item').addEventListener('click', async () => {
+  const query = $('bb-input-isbn').value.trim();
+  const coverPrice = parseFloat($('bb-input-cover').value) || 0;
+  if (!query) {
+    toast('กรุณากรอกชื่อหนังสือ หรือรหัส ISBN', 'error');
+    return;
+  }
+
+  $('btn-bb-add-item').disabled = true;
+  try {
+    const q = await post('buyback/estimate', {
+      isbn: query,
+      title: query,
+      cover_price: coverPrice
+    });
+    $('btn-bb-add-item').disabled = false;
+    if (q.error) { toast(q.error, 'error'); return; }
+
+    BB_ITEMS.push({
+      title: q.title,
+      isbn: q.isbn || '',
+      reference_price: q.reference_price,
+      offer_price: q.offer_price,
+      source: q.source
+    });
+
+    $('bb-input-isbn').value = '';
+    $('bb-input-cover').value = '';
+    renderBuybackManifest();
+    toast(`เพิ่ม "${q.title}" ในกล่องรับซื้อคืนแล้ว (รับซื้อ ${baht(q.offer_price)})`);
+  } catch (e) {
+    $('btn-bb-add-item').disabled = false;
+    toast('เกิดข้อผิดพลาดในการประเมินราคา', 'error');
+  }
+});
+$('bb-input-isbn').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-bb-add-item').click(); });
+
+$('bb-payout-method').addEventListener('change', () => {
+  const method = $('bb-payout-method').value;
+  $('bb-bank-name-fld').hidden = (method !== 'bank');
+  if (method === 'store_credit') {
+    $('bb-payout-acc').placeholder = 'รับเข้าเครดิตสมาชิก (อัตโนมัติ)';
+  } else if (method === 'promptpay') {
+    $('bb-payout-acc').placeholder = 'เบอร์โทรพร้อมเพย์ หรือเลขบัตรประชาชน';
+  } else {
+    $('bb-payout-acc').placeholder = 'เลขบัญชีธนาคาร';
+  }
+});
+
+$('btn-bb-submit').addEventListener('click', async () => {
+  const err = $('bb-submit-err');
+  err.hidden = true;
+  if (BB_ITEMS.length === 0) {
+    err.textContent = 'กรุณาเพิ่มหนังสือลงกล่องอย่างน้อย 1 เล่ม';
+    err.hidden = false;
+    return;
+  }
+  const name = $('bb-sender-name').value.trim();
+  const phone = $('bb-sender-phone').value.trim();
+  const addr = $('bb-sender-addr').value.trim();
+  const payoutMethod = $('bb-payout-method').value;
+  const payoutAcc = $('bb-payout-acc').value.trim();
+  const bankName = $('bb-bank-name').value.trim();
+
+  if (!name || !phone || !addr) {
+    err.textContent = 'กรุณากรอกชื่อผู้ส่ง เบอร์โทร และที่อยู่จัดส่งให้ครบถ้วน';
+    err.hidden = false;
+    return;
+  }
+  if (payoutMethod !== 'store_credit' && !payoutAcc) {
+    err.textContent = 'กรุณาระบุเลขพร้อมเพย์หรือเลขที่บัญชีสำหรับรับเงิน';
+    err.hidden = false;
+    return;
+  }
+
+  $('btn-bb-submit').disabled = true;
+  try {
+    const r = await post('buyback/create', {
+      items: BB_ITEMS,
+      sender_name: name,
+      sender_phone: phone,
+      sender_address: addr,
+      payout_method: payoutMethod,
+      payout_account: payoutAcc,
+      bank_name: bankName
+    });
+    $('btn-bb-submit').disabled = false;
+    if (r.error) {
+      err.textContent = r.error;
+      err.hidden = false;
+      return;
+    }
+
+    BB_ITEMS = [];
+    renderBuybackManifest();
+    $('bb-sender-form-card').hidden = true;
+    $('bb-success-box').hidden = false;
+    $('bb-success-code').textContent = r.tracking_code;
+    $('bb-btn-open-label').href = r.shipping_label_url || `buyback-label?code=${r.tracking_code}`;
+
+    toast('สร้างคำขอขายคืนสำเร็จ! รหัส ' + r.tracking_code);
+    $('bb-btn-track-new').onclick = () => {
+      switchTab('tracking');
+      $('tracking-input').value = r.tracking_code;
+      doSearchTracking();
+    };
+  } catch (e) {
+    $('btn-bb-submit').disabled = false;
+    err.textContent = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้';
+    err.hidden = false;
+  }
+});
+
+/* Order Picker for Buyback */
+$('btn-open-order-picker').addEventListener('click', async () => {
+  $('order-pick-box').hidden = false;
+  const listEl = $('order-pick-list');
+  listEl.innerHTML = '<p class="hint" style="text-align:center;padding:16px"><span class="spin"></span> กำลังดึงประวัติการสั่งซื้อของคุณ...</p>';
+  try {
+    const prof = await get('customer/profile');
+    const orders = prof.orders || [];
+    if (orders.length === 0) {
+      listEl.innerHTML = '<p class="hint" style="text-align:center;padding:20px">ไม่พบประวัติการสั่งซื้อ หรือคุณยังไม่ได้เข้าสู่ระบบสมาชิก</p>';
+      return;
+    }
+    listEl.innerHTML = orders.map(ord => {
+      const items = ord.items_json ? JSON.parse(ord.items_json) : [{ title: ord.title, price: ord.price }];
+      return `
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;color:var(--muted)">
+            <span class="mono">${esc(ord.order_code || '#' + ord.id)}</span>
+            <span>${esc((ord.created_at || '').slice(0, 10))}</span>
+          </div>
+          ${items.map(item => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-top:1px dashed rgba(255,255,255,0.06)">
+              <div>
+                <b>${esc(item.title)}</b>
+                <span class="mono" style="margin-left:6px;font-size:0.8rem;color:var(--muted)">${baht(item.price)}</span>
+              </div>
+              <button class="btn sm" style="font-size:0.75rem;padding:4px 8px" onclick="pickBookForBuyback('${esc(item.title)}', ${item.price})">เลือกเล่มนี้</button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = '<p class="hint" style="text-align:center;padding:20px">ดึงประวัติไม่สำเร็จ กรุณาพิมพ์ชื่อหนังสือเอง</p>';
+  }
+});
+$('btn-order-pick-close').addEventListener('click', () => { $('order-pick-box').hidden = true; });
+$('order-pick-box').addEventListener('click', e => { if (e.target === $('order-pick-box')) $('order-pick-box').hidden = true; });
+
+window.pickBookForBuyback = function(title, purchasedPrice) {
+  const offerPrice = Math.round(purchasedPrice * 0.70);
+  BB_ITEMS.push({
+    title: title,
+    isbn: '',
+    reference_price: purchasedPrice,
+    offer_price: offerPrice,
+    source: 'order_history'
+  });
+  $('order-pick-box').hidden = true;
+  renderBuybackManifest();
+  toast(`เลือก "${title}" จากประวัติซื้อเรียบร้อย`);
+};
+
+/* ============================================================
+   3. ระบบติดตามสถานะ (TRACKING SYSTEM)
+   ============================================================ */
+async function doSearchTracking() {
+  const query = $('tracking-input').value.trim();
+  const resBox = $('tracking-result-box');
+  if (!query) {
+    toast('กรุณากรอกรหัสติดตามพัสดุ (BB-xxx, ORD-xxx หรือเบอร์โทร)', 'error');
+    return;
+  }
+  resBox.innerHTML = '<p class="hint" style="text-align:center;padding:16px"><span class="spin"></span> กำลังค้นหาสถานะ...</p>';
+
+  try {
+    let bbRes = null;
+    let ordRes = null;
+
+    if (query.toUpperCase().startsWith('BB-')) {
+      bbRes = await get('buyback/track?query=' + encodeURIComponent(query));
+    } else if (query.toUpperCase().startsWith('ORD-') || query.startsWith('#')) {
+      ordRes = await get('order/track?query=' + encodeURIComponent(query));
+    } else {
+      [bbRes, ordRes] = await Promise.all([
+        get('buyback/track?query=' + encodeURIComponent(query)).catch(() => null),
+        get('order/track?query=' + encodeURIComponent(query)).catch(() => null)
+      ]);
+    }
+
+    const bbList = bbRes?.results || [];
+    const ordList = ordRes?.results || [];
+
+    if (bbList.length === 0 && ordList.length === 0) {
+      resBox.innerHTML = '<p class="empty">ไม่พบข้อมูลคำขอขายคืนหรือคำสั่งซื้อที่ระบุ กรุณาตรวจสอบรหัสอีกครั้ง</p>';
+      return;
+    }
+
+    let html = '';
+
+    if (bbList.length > 0) {
+      html += '<h3 style="font-size:1rem;color:#34d399;margin:10px 0 8px">📦 พัสดุขายคืน (Buy Back Requests)</h3>';
+      html += bbList.map(req => {
+        const items = req.items_json ? JSON.parse(req.items_json) : [];
+        const steps = [
+          { key: 'label_created', label: '1. สร้างใบปะหน้า', desc: 'พิมพ์ใบปะหน้า & บรรจุหีบห่อ' },
+          { key: 'in_transit', label: '2. จัดส่งเข้าคลัง', desc: 'พัสดุกำลังเดินทาง / ถึงคลังแล้ว' },
+          { key: 'inspecting', label: '3. ตรวจสภาพ', desc: 'เจ้าหน้าที่ตรวจสภาพเล่มจริง' },
+          { key: 'completed', label: '4. โอนเงิน/เครดิต', desc: 'อนุมัติจ่ายเงินเรียบร้อย' }
+        ];
+
+        let curStepIdx = 0;
+        if (req.status === 'in_transit' || req.status === 'received') curStepIdx = 1;
+        else if (req.status === 'inspecting') curStepIdx = 2;
+        else if (req.status === 'approved' || req.status === 'completed') curStepIdx = 3;
+
+        return `
+          <div class="card" style="padding:16px;margin-bottom:14px;border-color:rgba(52,211,153,0.3)">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+              <div>
+                <b class="mono" style="font-size:1.15rem;color:#34d399">${esc(req.tracking_code)}</b>
+                <span class="badge high" style="margin-left:8px">${esc(req.status_th || req.status)}</span>
+              </div>
+              <a href="buyback-label?code=${encodeURIComponent(req.tracking_code)}" target="_blank" class="btn sm ghost" style="text-decoration:none">🖨️ พิมพ์ใบปะหน้า</a>
+            </div>
+
+            <div class="stepper">
+              ${steps.map((st, i) => `
+                <div class="step-item ${i < curStepIdx ? 'completed' : (i === curStepIdx ? 'active' : '')}">
+                  <div class="step-dot">${i < curStepIdx ? '✓' : (i + 1)}</div>
+                  <div class="step-lbl"><b>${st.label}</b><br><small>${st.desc}</small></div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div style="background:rgba(15,23,42,0.6);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:0.84rem">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="color:var(--muted)">ผู้ส่ง:</span> <span>${esc(req.customer_name)} (${esc(req.phone)})</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="color:var(--muted)">ช่องทางรับเงิน:</span> <span>${esc(req.payout_method)} · <b class="mono">${esc(req.payout_account)}</b></span>
+              </div>
+              <div style="display:flex;justify-content:space-between">
+                <span style="color:var(--muted)">ยอดรับซื้อคืน:</span> <span class="mono" style="color:#34d399;font-weight:700">${baht(req.total_offer_price)} (หัก 30%)</span>
+              </div>
+            </div>
+
+            <div style="margin-top:8px">
+              <small style="color:var(--muted)">รายการหนังสือในพัสดุ (${items.length} เล่ม):</small>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+                ${items.map(it => `<span class="badge" style="background:rgba(255,255,255,0.06);color:#fff">${esc(it.title)} (${baht(it.offer_price)})</span>`).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    if (ordList.length > 0) {
+      html += '<h3 style="font-size:1rem;color:#60a5fa;margin:14px 0 8px">🛍️ คำสั่งซื้อหนังสือ (Orders)</h3>';
+      html += ordList.map(ord => {
+        const items = ord.items_json ? JSON.parse(ord.items_json) : [{ title: ord.title, price: ord.price }];
+        const steps = [
+          { key: 'pending', label: '1. รอชำระเงิน' },
+          { key: 'paid', label: '2. ชำระแล้ว รอจัดส่ง' },
+          { key: 'shipped', label: '3. จัดส่งพัสดุแล้ว' }
+        ];
+
+        let curStepIdx = 0;
+        if (ord.status === 'paid') curStepIdx = 1;
+        else if (ord.status === 'shipped') curStepIdx = 2;
+
+        return `
+          <div class="card" style="padding:16px;margin-bottom:14px;border-color:rgba(96,165,250,0.3)">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+              <div>
+                <b class="mono" style="font-size:1.15rem;color:#60a5fa">${esc(ord.order_code || '#' + ord.id)}</b>
+                <span class="badge ${ORDER_BADGE[ord.status] || 'medium'}" style="margin-left:8px">${ORDER_LABEL[ord.status] || ord.status}</span>
+              </div>
+              ${ord.status === 'pending' ? `<button class="btn sm" onclick="openPayModal(${ord.id}, '${esc(ord.order_code || ord.title)}')">สแกนชำระเงิน</button>` : ''}
+            </div>
+
+            <div class="stepper">
+              ${steps.map((st, i) => `
+                <div class="step-item ${i < curStepIdx ? 'completed' : (i === curStepIdx ? 'active' : '')}">
+                  <div class="step-dot">${i < curStepIdx ? '✓' : (i + 1)}</div>
+                  <div class="step-lbl"><b>${st.label}</b></div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div style="background:rgba(15,23,42,0.6);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:0.84rem">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="color:var(--muted)">ผู้รับ:</span> <span>${esc(ord.customer_name)} (${esc(ord.phone)})</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="color:var(--muted)">ที่อยู่จัดส่ง:</span> <span>${esc(ord.address)}</span>
+              </div>
+              ${ord.tracking ? `
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                  <span style="color:var(--muted)">เลขพัสดุขนส่ง:</span> <span class="mono" style="color:#34d399;font-weight:700">${esc(ord.tracking)}</span>
+                </div>
+              ` : ''}
+              <div style="display:flex;justify-content:space-between">
+                <span style="color:var(--muted)">ยอดรวม:</span> <span class="mono" style="color:#60a5fa;font-weight:700">${baht(ord.total_amount || ord.price)}</span>
+              </div>
+            </div>
+
+            <div style="margin-top:8px">
+              <small style="color:var(--muted)">รายการหนังสือ (${items.length} เล่ม):</small>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+                ${items.map(it => `<span class="badge" style="background:rgba(255,255,255,0.06);color:#fff">${esc(it.title)} (${baht(it.price)})</span>`).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    resBox.innerHTML = html;
+  } catch (err) {
+    resBox.innerHTML = '<p class="empty" style="color:var(--danger)">เกิดข้อผิดพลาดในการค้นหา</p>';
+  }
+}
+$('btn-tracking-search').addEventListener('click', doSearchTracking);
+$('tracking-input').addEventListener('keydown', e => { if (e.key === 'Enter') doSearchTracking(); });
+
+/* ============================================================
+   4. บัญชีสมาชิก (ACCOUNT & SOCIAL LOGIN)
+   ============================================================ */
+async function loadAccountPage() {
+  const container = $('account-page-content');
+  if (!container) return;
+  container.innerHTML = '<p class="hint" style="text-align:center;padding:24px"><span class="spin"></span> กำลังโหลดข้อมูลบัญชีสมาชิก...</p>';
+
+  try {
+    const prof = await get('customer/profile');
+    if (prof.guest) {
+      container.innerHTML = `
+        <div class="card" style="padding:22px;max-width:480px;margin:0 auto">
+          <h3 style="margin:0 0 6px">เข้าสู่ระบบ / สมัครสมาชิก</h3>
+          <p class="hint" style="margin-bottom:18px">เลือกเข้าสู่ระบบด้วย Social Login 1-Click หรือใช้อีเมลเพื่อสะสม Store Credit และดูประวัติ</p>
+          
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px">
+            <button class="btn ghost" onclick="doSocialAuth('google')" style="display:flex;align-items:center;justify-content:center;gap:10px;border-color:rgba(255,255,255,0.2)">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.3l3.7 2.9C6.2 7.3 8.8 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.6 7.3C.6 9.3 0 11.1 0 12s.6 2.7 1.6 4.7l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.2 0-5.8-2.3-6.7-5.2L1.6 16c1.9 3.7 5.8 7 10.4 7z"/></svg>
+              เข้าสู่ระบบด้วย Google
+            </button>
+            <button class="btn ghost" onclick="doSocialAuth('facebook')" style="display:flex;align-items:center;justify-content:center;gap:10px;border-color:rgba(255,255,255,0.2)">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="#1877F2"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+              เข้าสู่ระบบด้วย Facebook
+            </button>
+            <button class="btn ghost" onclick="doSocialAuth('line')" style="display:flex;align-items:center;justify-content:center;gap:10px;border-color:rgba(255,255,255,0.2)">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="#06C755"><path d="M24 10.3c0-4.6-5.4-8.3-12-8.3S0 5.7 0 10.3c0 4.1 3.6 7.6 8.5 8.2.4.1.9.3 1 .6.1.4.1.9 0 1.3l-.3 1.5c-.1.5-.4 1.7.7 1 1.1-.8 6-3.6 8.2-6.1 3.7-3.9 5.9-4.8 5.9-6.5z"/></svg>
+              เข้าสู่ระบบด้วย LINE
+            </button>
+          </div>
+
+          <div style="text-align:center;color:var(--muted);margin-bottom:14px;font-size:0.8rem">— หรือเข้าสู่ระบบด้วยอีเมล —</div>
+          <div class="field"><label>อีเมล</label><input id="auth-email" type="email" placeholder="you@example.com"></div>
+          <div class="field"><label>รหัสผ่าน</label><input id="auth-pwd" type="password" placeholder="••••••••"></div>
+          <p class="err-line" id="auth-err" hidden></p>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" onclick="doEmailAuth('login')" style="flex:1">เข้าสู่ระบบ</button>
+            <button class="btn ghost" onclick="doEmailAuth('register')" style="flex:1">สมัครสมาชิก</button>
+          </div>
+        </div>
+      `;
+    } else {
+      const user = prof.customer;
+      const credit = prof.store_credit || 0;
+      container.innerHTML = `
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+            <div>
+              <h3 style="margin:0;font-size:1.2rem;color:#fff">${esc(user.name || user.email)}</h3>
+              <p class="hint" style="margin:2px 0 0">${esc(user.email)} · ${user.provider === 'email' ? 'บัญชีอีเมล' : 'เชื่อมต่อผ่าน ' + esc(user.provider)}</p>
+            </div>
+            <div style="text-align:right;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:10px;padding:8px 16px">
+              <span style="font-size:0.75rem;color:var(--muted)">Store Credit คงเหลือ</span>
+              <div class="mono" style="font-size:1.4rem;font-weight:700;color:#60a5fa">${baht(credit)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:18px;margin-bottom:16px">
+          <h4 style="margin:0 0 10px;font-size:0.95rem">ข้อมูลส่วนตัวและที่อยู่จัดส่งเริ่มต้น</h4>
+          <div class="fld-row">
+            <label class="fld">ชื่อ-นามสกุล <input id="prof-name" value="${esc(user.name || '')}"></label>
+            <label class="fld">เบอร์โทรศัพท์ <input id="prof-phone" value="${esc(user.phone || '')}"></label>
+          </div>
+          <label class="fld">ที่อยู่จัดส่ง <textarea id="prof-address" rows="2">${esc(user.address || '')}</textarea></label>
+          <button class="btn sm" onclick="saveCustomerProfile()" style="margin-top:8px">บันทึกข้อมูลส่วนตัว</button>
+        </div>
+
+        <div class="card" style="padding:18px">
+          <h4 style="margin:0 0 10px;font-size:0.95rem">ประวัติคำสั่งซื้อและขายคืน</h4>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn sm" onclick="switchTab('tracking')">🔍 ค้นหาและติดตามสถานะพัสดุ</button>
+            <button class="btn ghost sm" onclick="switchTab('buyback')">📦 ขายคืนหนังสือหัก 30%</button>
+          </div>
+          <p class="hint">มีประวัติคำสั่งซื้อ ${prof.orders?.length || 0} รายการ และประวัติขายคืน ${prof.buybacks?.length || 0} รายการ</p>
+        </div>
+      `;
+    }
+  } catch (e) {
+    container.innerHTML = '<p class="empty" style="color:var(--danger)">โหลดข้อมูลบัญชีไม่สำเร็จ</p>';
+  }
+}
+
+window.doSocialAuth = async function(provider) {
+  const dummyNames = { google: 'คุณนุ่น (Google User)', facebook: 'Noon Booklover (Facebook)', line: 'Nuun LINE' };
+  const dummyEmails = { google: 'noon.customer@gmail.com', facebook: 'noon.fb@facebook.com', line: 'noon@line.me' };
+  try {
+    const r = await post('customer/auth', {
+      provider: provider,
+      email: dummyEmails[provider],
+      name: dummyNames[provider],
+      phone: '081-234-5678',
+      address: '99/1 ถ.สุขุมวิท แขวงคลองเตย เขตคลองเตย กทม. 10110'
+    });
+    if (r.error) { toast(r.error, 'error'); return; }
+    toast(`เข้าสู่ระบบด้วย ${provider} สำเร็จ! ยินดีต้อนรับ ${r.customer.name}`);
+    CURRENT_USER = { ...CURRENT_USER, ...r.customer, role: 'customer' };
+    const userNameEl = document.querySelector('.user-name');
+    if (userNameEl) userNameEl.textContent = r.customer.name;
+    loadAccountPage();
+  } catch (e) {
+    toast('เข้าสู่ระบบไม่สำเร็จ', 'error');
+  }
+};
+
+window.doEmailAuth = async function(action) {
+  const email = $('auth-email').value.trim();
+  const pwd = $('auth-pwd').value.trim();
+  const err = $('auth-err');
+  if (!email || !pwd) {
+    err.textContent = 'กรุณากรอกอีเมลและรหัสผ่าน';
+    err.hidden = false;
+    return;
+  }
+  err.hidden = true;
+  try {
+    const r = await post('customer/auth', {
+      provider: 'email',
+      email: email,
+      password: pwd,
+      action: action,
+      name: email.split('@')[0]
+    });
+    if (r.error) {
+      err.textContent = r.error;
+      err.hidden = false;
+      return;
+    }
+    toast(`เข้าสู่ระบบสำเร็จ!`);
+    CURRENT_USER = { ...CURRENT_USER, ...r.customer, role: 'customer' };
+    const userNameEl = document.querySelector('.user-name');
+    if (userNameEl) userNameEl.textContent = r.customer.name || email;
+    loadAccountPage();
+  } catch (e) {
+    err.textContent = 'เชื่อมต่อระบบไม่สำเร็จ';
+    err.hidden = false;
+  }
+};
+
+window.saveCustomerProfile = async function() {
+  const name = $('prof-name').value.trim();
+  const phone = $('prof-phone').value.trim();
+  const address = $('prof-address').value.trim();
+  try {
+    const r = await post('customer/profile', { name, phone, address });
+    if (r.error) { toast(r.error, 'error'); return; }
+    toast('บันทึกข้อมูลส่วนตัวเรียบร้อย');
+    if (CURRENT_USER) {
+      CURRENT_USER.name = name;
+      CURRENT_USER.phone = phone;
+      CURRENT_USER.address = address;
+    }
+    const userNameEl = document.querySelector('.user-name');
+    if (userNameEl) userNameEl.textContent = name;
+  } catch (e) {
+    toast('บันทึกไม่สำเร็จ', 'error');
+  }
+};
 
 refreshOrderBadge();
 

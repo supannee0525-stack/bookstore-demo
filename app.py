@@ -275,9 +275,37 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
     ocols = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
     # ที่อยู่จัดส่ง + เลขพัสดุ + เวลาแต่ละขั้น — เพิ่มทีหลังตอนเปลี่ยนจาก "จอง" เป็น "สั่งซื้อจริง"
-    for col in ("address TEXT", "tracking TEXT", "paid_at TEXT", "shipped_at TEXT"):
+    for col in ("address TEXT", "tracking TEXT", "paid_at TEXT", "shipped_at TEXT",
+                "items_json TEXT", "shipping_cost REAL DEFAULT 0", "subtotal REAL DEFAULT 0",
+                "total_amount REAL DEFAULT 0", "payment_method TEXT DEFAULT 'promptpay'", "order_code TEXT"):
         if col.split()[0] not in ocols:
             conn.execute(f"ALTER TABLE orders ADD COLUMN {col}")
+    # บัญชีลูกค้า (Customer Accounts)
+    conn.execute("CREATE TABLE IF NOT EXISTS customers ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "email TEXT UNIQUE, password_hash TEXT, name TEXT NOT NULL,"
+                 "phone TEXT, address TEXT, provider TEXT DEFAULT 'email',"
+                 "store_credit REAL DEFAULT 0, created_at TEXT NOT NULL)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email)")
+    # คำขอรับซื้อคืน (Buy Back Requests) พร้อมออกใบปะหน้าพัสดุ
+    conn.execute("CREATE TABLE IF NOT EXISTS buyback_requests ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "tracking_code TEXT NOT NULL UNIQUE,"
+                 "customer_id INTEGER,"
+                 "customer_name TEXT NOT NULL, phone TEXT NOT NULL, address TEXT,"
+                 "payout_method TEXT NOT NULL, payout_account TEXT NOT NULL, bank_name TEXT,"
+                 "items_json TEXT NOT NULL, total_reference_price REAL NOT NULL,"
+                 "total_offer_price REAL NOT NULL, deduction_pct REAL DEFAULT 30,"
+                 "status TEXT NOT NULL DEFAULT 'pending_shipment',"
+                 "shipping_label_data TEXT, label_created_at TEXT, admin_note TEXT, rejection_reason TEXT,"
+                 "created_at TEXT NOT NULL, updated_at TEXT, completed_at TEXT)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_bb_tracking ON buyback_requests(tracking_code)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_bb_phone ON buyback_requests(phone)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_bb_status ON buyback_requests(status)")
+    bbcols = {r["name"] for r in conn.execute("PRAGMA table_info(buyback_requests)")}
+    for col in ("label_created_at TEXT", "updated_at TEXT", "completed_at TEXT", "admin_note TEXT", "rejection_reason TEXT"):
+        if col.split()[0] not in bbcols:
+            conn.execute(f"ALTER TABLE buyback_requests ADD COLUMN {col}")
     # รายการชำระเงิน — 1 คำสั่งซื้อมีได้หลายใบ (เช่นใบเก่าหมดอายุแล้วออกใหม่)
     conn.execute("CREATE TABLE IF NOT EXISTS payments ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -1160,12 +1188,23 @@ def api_order_update(order_id, action, tracking=""):
         conn.execute("UPDATE orders SET status='shipped', shipped_at=?, tracking=? WHERE id=?",
                      (now(), tracking.strip() or None, order_id))
     else:  # cancel
-        if st == "paid":
-            # ถอนรายการขายของเล่มนี้ออก แล้วคืนเล่มเข้าสต็อก
-            conn.execute("DELETE FROM sales WHERE copy_id=?", (cid,))
-            conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (cid,))
-        elif c["status"] == "reserved":
-            conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (cid,))
+        items_raw = o["items_json"] if "items_json" in o.keys() and o["items_json"] else None
+        cids = []
+        if items_raw:
+            try:
+                for it in json.loads(items_raw):
+                    if it.get("copy_id"):
+                        cids.append(it["copy_id"])
+            except Exception:
+                pass
+        if not cids and cid:
+            cids = [cid]
+
+        for item_cid in cids:
+            if st == "paid":
+                conn.execute("DELETE FROM sales WHERE copy_id=?", (item_cid,))
+            conn.execute("UPDATE copies SET status='in_stock' WHERE id=?", (item_cid,))
+
         conn.execute("UPDATE orders SET status='cancelled' WHERE id=?", (order_id,))
         conn.execute("UPDATE payments SET status='cancelled' WHERE order_id=? AND status='awaiting'",
                      (order_id,))
@@ -1854,10 +1893,26 @@ def _mark_order_paid(conn, order):
     แยกออกมาเป็นฟังก์ชันกลาง เพราะมี 2 ทางที่ทำให้ออเดอร์เป็น 'ชำระแล้ว':
     พนักงานกดยืนยันเอง กับระบบรับเงินยืนยันเข้ามา — ต้องได้ผลเหมือนกันเป๊ะ
     """
-    c = conn.execute("SELECT * FROM copies WHERE id=?", (order["copy_id"],)).fetchone()
-    conn.execute("UPDATE copies SET status='sold' WHERE id=?", (order["copy_id"],))
-    conn.execute("INSERT INTO sales(copy_id,price,sold_at) VALUES(?,?,?)",
-                 (order["copy_id"], c["price"], now()))
+    items_raw = order["items_json"] if "items_json" in order.keys() and order["items_json"] else None
+    if items_raw:
+        try:
+            items = json.loads(items_raw)
+            for it in items:
+                cid = it.get("copy_id")
+                if cid:
+                    c = conn.execute("SELECT * FROM copies WHERE id=?", (cid,)).fetchone()
+                    if c:
+                        conn.execute("UPDATE copies SET status='sold' WHERE id=?", (cid,))
+                        conn.execute("INSERT INTO sales(copy_id,price,sold_at) VALUES(?,?,?)",
+                                     (cid, c["price"], now()))
+        except Exception:
+            pass
+    elif order["copy_id"]:
+        c = conn.execute("SELECT * FROM copies WHERE id=?", (order["copy_id"],)).fetchone()
+        if c:
+            conn.execute("UPDATE copies SET status='sold' WHERE id=?", (order["copy_id"],))
+            conn.execute("INSERT INTO sales(copy_id,price,sold_at) VALUES(?,?,?)",
+                         (order["copy_id"], c["price"], now()))
     conn.execute("UPDATE orders SET status='paid', paid_at=? WHERE id=?", (now(), order["id"]))
 
 
@@ -1871,8 +1926,12 @@ def api_payment_create(order_id):
     if o["status"] != "pending":
         conn.close()
         return {"error": "คำสั่งซื้อนี้ชำระเงินหรือปิดไปแล้ว"}
-    c = conn.execute("SELECT price FROM copies WHERE id=?", (o["copy_id"],)).fetchone()
-    amount = float(c["price"] or 0)
+    amount = 0.0
+    if "total_amount" in o.keys() and o["total_amount"]:
+        amount = float(o["total_amount"])
+    elif o["copy_id"]:
+        c = conn.execute("SELECT price FROM copies WHERE id=?", (o["copy_id"],)).fetchone()
+        amount = float(c["price"] or 0)
 
     pay = conn.execute("SELECT * FROM payments WHERE order_id=? AND status='awaiting'",
                        (order_id,)).fetchone()
@@ -2098,6 +2157,697 @@ def api_buyback_accept(p):
             "paid": offer, "sell_price": price, "shelf": shelf}
 
 
+# ================================================================
+# ระบบรับซื้อคืน (Buy Back 30%) + E-Commerce Cart & Tracking + สมาชิก
+# ================================================================
+
+BUYBACK_DEDUCTION_PCT = 30.0  # หัก 30% จากราคาอ้างอิง (รับซื้อที่ 70%)
+STORE_CREDIT_BONUS_PCT = 5.0  # รับเป็น Store Credit ได้เพิ่ม 5% (รับซื้อที่ 75%)
+WAREHOUSE_INFO = {
+    "name": "คลังรับซื้อหนังสือมือสอง Bookstore (แผนกตรวจสภาพและรับซื้อคืน)",
+    "address": "123/45 ถนนลาดพร้าว แขวงคลองจั่น เขตบางกะปิ กรุงเทพฯ 10240",
+    "phone": "085-171-9494",
+    "email": "contact@ai4you.click"
+}
+
+
+def api_buyback_estimate(p):
+    """คำนวณราคารับซื้ออัตโนมัติ หัก 30% จากราคาอ้างอิงหรือราคาที่เคยซื้อไป"""
+    items = p.get("items") or []
+    if not items:
+        single = {}
+        if p.get("isbn"): single["isbn"] = p.get("isbn")
+        if p.get("title"): single["title"] = p.get("title")
+        if p.get("cover_price"): single["cover_price"] = p.get("cover_price")
+        if p.get("code"): single["code"] = p.get("code")
+        if p.get("from_order_copy_id"): single["from_order_copy_id"] = p.get("from_order_copy_id")
+        if single:
+            items = [single]
+        else:
+            return {"error": "กรุณาระบุข้อมูลหนังสือที่ต้องการขายคืน"}
+
+    conn = db()
+    quotes = []
+    total_ref = 0.0
+    total_cash = 0.0
+    total_credit = 0.0
+
+    for it in items:
+        title = (it.get("title") or "").strip()
+        isbn = (it.get("isbn") or "").strip()
+        code = (it.get("code") or "").strip().upper()
+        order_copy_id = it.get("from_order_copy_id")
+        grade = it.get("grade", "B")
+
+        ref_price = 0.0
+        ref_source = "cover"
+        author = it.get("author", "")
+
+        if order_copy_id:
+            c = conn.execute("SELECT c.*, t.title, t.author, t.cover_price FROM copies c JOIN titles t ON t.id=c.title_id WHERE c.id=?", (order_copy_id,)).fetchone()
+            if c:
+                ref_price = float(c["price"] or c["cover_price"] or 200)
+                title = c["title"]
+                author = c["author"] or ""
+                ref_source = "order_history"
+        elif code:
+            c = conn.execute("SELECT c.*, t.title, t.author, t.cover_price FROM copies c JOIN titles t ON t.id=c.title_id WHERE c.code=?", (code,)).fetchone()
+            if c:
+                ref_price = float(c["price"] or c["cover_price"] or 200)
+                title = c["title"]
+                author = c["author"] or ""
+                ref_source = "sticker"
+        elif isbn:
+            t = conn.execute("SELECT * FROM titles WHERE isbn=? LIMIT 1", (isbn,)).fetchone()
+            if t:
+                ref_price = float(t["cover_price"] or 250)
+                title = t["title"]
+                author = t["author"] or ""
+                ref_source = "database_isbn"
+            else:
+                ref_price = float(it.get("cover_price") or 250)
+                ref_source = "manual_isbn"
+        else:
+            ref_price = float(it.get("cover_price") or 200)
+            ref_source = "user_input"
+
+        rate_cash = (100.0 - BUYBACK_DEDUCTION_PCT) / 100.0
+        rate_credit = rate_cash + (STORE_CREDIT_BONUS_PCT / 100.0)
+
+        cash_offer = max(10, round(ref_price * rate_cash / 5) * 5)
+        credit_offer = max(15, round(ref_price * rate_credit / 5) * 5)
+
+        quotes.append({
+            "title": title or "หนังสือไม่ระบุชื่อ",
+            "author": author,
+            "isbn": isbn or None,
+            "code": code or None,
+            "ref_price": ref_price,
+            "ref_source": ref_source,
+            "deduction_pct": BUYBACK_DEDUCTION_PCT,
+            "cash_offer": cash_offer,
+            "credit_offer": credit_offer,
+            "grade": grade,
+            "grade_label": GRADE_LABEL.get(grade, grade)
+        })
+        total_ref += ref_price
+        total_cash += cash_offer
+        total_credit += credit_offer
+
+    conn.close()
+    first_title = quotes[0]["title"] if quotes else ""
+    first_isbn = quotes[0]["isbn"] if quotes else ""
+    return {
+        "ok": True,
+        "items": quotes,
+        "count": len(quotes),
+        "total_ref_price": total_ref,
+        "total_cash_offer": total_cash,
+        "total_credit_offer": total_credit,
+        "deduction_pct": BUYBACK_DEDUCTION_PCT,
+        "credit_bonus_pct": STORE_CREDIT_BONUS_PCT,
+        "store_credit_bonus_pct": STORE_CREDIT_BONUS_PCT,
+        # Top-level aliases for single item requests
+        "title": first_title,
+        "isbn": first_isbn,
+        "reference_price": total_ref,
+        "offer_price": total_cash,
+        "source": quotes[0]["ref_source"] if quotes else "estimate"
+    }
+
+
+def api_buyback_create(p, user=None):
+    """สร้างคำขอขายคืน (Buy Back Request) พร้อมออกรหัสติดตามและใบปะหน้าพัสดุ"""
+    name = (p.get("customer_name") or p.get("sender_name") or "").strip()
+    if not name:
+        return {"error": "กรุณากรอกชื่อ-นามสกุลผู้ส่ง"}
+    phone = (p.get("phone") or p.get("sender_phone") or "").strip()
+    if len(re.sub(r"\D", "", phone)) < 9:
+        return {"error": "กรุณากรอกเบอร์โทรศัพท์ติดต่อให้ถูกต้อง"}
+    address = (p.get("address") or p.get("sender_address") or "").strip()
+    if len(address) < 8:
+        return {"error": "กรุณากรอกที่อยู่สำหรับส่งคืนกรณีตรวจสภาพไม่ผ่าน"}
+
+    payout_method = p.get("payout_method") or "promptpay"
+    payout_account = (p.get("payout_account") or "").strip()
+    bank_name = (p.get("bank_name") or "").strip()
+    if payout_method in ("promptpay", "bank") and not payout_account:
+        return {"error": "กรุณาระบุเบอร์พร้อมเพย์หรือเลขที่บัญชีสำหรับรับเงินโอน"}
+
+    calc = api_buyback_estimate(p)
+    if calc.get("error"):
+        return calc
+
+    total_ref = calc["total_ref_price"]
+    total_offer = calc["total_credit_offer"] if payout_method == "store_credit" else calc["total_cash_offer"]
+    items = calc["items"]
+
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    track_code = f"BB-{date_str}-{secrets.token_hex(2).upper()}"
+
+    conn = db()
+    customer_id = None
+    if user:
+        crow = conn.execute("SELECT id FROM customers WHERE email=? OR name=?", (user, user)).fetchone()
+        if crow:
+            customer_id = crow["id"]
+
+    cur = conn.execute(
+        "INSERT INTO buyback_requests (tracking_code, customer_id, customer_name, phone, address,"
+        " payout_method, payout_account, bank_name, items_json, total_reference_price, total_offer_price,"
+        " deduction_pct, status, label_created_at, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_shipment', ?, ?)",
+        (track_code, customer_id, name, phone, address, payout_method, payout_account,
+         bank_name, json.dumps(items, ensure_ascii=False), total_ref, total_offer,
+         BUYBACK_DEDUCTION_PCT, now(), now())
+    )
+    req_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "request_id": req_id,
+        "tracking_code": track_code,
+        "total_offer_price": total_offer,
+        "payout_method": payout_method,
+        "items_count": len(items),
+        "label_url": f"/buyback-label?code={track_code}"
+    }
+
+
+def api_buyback_track(query_val):
+    """ค้นหาและติดตามสถานะคำขอรับซื้อคืน ด้วยรหัส BB-xxx หรือเบอร์โทร"""
+    q = (query_val or "").strip()
+    if not q:
+        return {"error": "กรุณาระบุรหัสติดตามพัสดุหรือเบอร์โทร"}
+    conn = db()
+    rows = conn.execute(
+        "SELECT * FROM buyback_requests WHERE tracking_code=? OR phone=? ORDER BY id DESC LIMIT 10",
+        (q, q)
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return {"ok": True, "found": False, "results": []}
+
+    results = []
+    status_map = {
+        "pending_shipment": {"step": 1, "label": "รอจัดส่งหนังสือ", "desc": "ลูกค้าพิมพ์ใบปะหน้าและกำลังส่งพัสดุเข้าคลัง"},
+        "in_transit": {"step": 1, "label": "อยู่ระหว่างขนส่ง", "desc": "พัสดุอยู่ระหว่างนำส่งมายังคลังหนังสือ"},
+        "received": {"step": 2, "label": "คลังได้รับพัสดุแล้ว", "desc": "เจ้าหน้าที่รับพัสดุเข้าคลังเรียบร้อย กำลังรอคิวตรวจสภาพ"},
+        "inspecting": {"step": 2, "label": "กำลังตรวจสภาพหนังสือ", "desc": "ผู้เชี่ยวชาญกำลังตรวจความสมบูรณ์และเกรดของเล่ม"},
+        "approved": {"step": 3, "label": "อนุมัติเรียบร้อย", "desc": "ตรวจสภาพผ่านตามเกณฑ์ เตรียมโอนเงินหรือให้เครดิตร้าน"},
+        "paid": {"step": 3, "label": "โอนเงินเรียบร้อยแล้ว", "desc": "ชำระเงินโอนเข้าบัญชี หรือเพิ่ม Store Credit ให้ลูกค้าแล้ว"},
+        "rejected": {"step": -1, "label": "ปฏิเสธรับซื้อ", "desc": "สภาพไม่ผ่านเกณฑ์การรับซื้อ ติดต่อส่งคืนเจ้าของ"},
+        "price_adjusted": {"step": 2, "label": "ปรับราคาตามสภาพจริง", "desc": "สภาพหนังสือไม่ตรงกับที่ระบุ มีการปรับราคาประเมิน"}
+    }
+
+    for r in rows:
+        d = dict(r)
+        st = d["status"]
+        info = status_map.get(st, {"step": 1, "label": st, "desc": ""})
+        d["status_label"] = info["label"]
+        d["status_step"] = info["step"]
+        d["status_desc"] = info["desc"]
+        try:
+            d["items"] = json.loads(d["items_json"])
+        except Exception:
+            d["items"] = []
+        results.append(d)
+
+    return {"ok": True, "found": True, "results": results}
+
+
+def api_buyback_label_html(code):
+    """สร้างหน้า HTML สำหรับพิมพ์ใบปะหน้าพัสดุรับซื้อคืน (Printable Shipping Label)"""
+    conn = db()
+    row = conn.execute("SELECT * FROM buyback_requests WHERE tracking_code=?", (code,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+
+    req = dict(row)
+    try:
+        items = json.loads(req["items_json"])
+    except Exception:
+        items = []
+
+    try:
+        barcode_svg = make_barcode_svg(req["tracking_code"]).decode("utf-8")
+    except Exception:
+        barcode_svg = f'<div style="font-family:monospace;font-size:24px;font-weight:bold;">{req["tracking_code"]}</div>'
+
+    payout_text = req["payout_method"]
+    if req["payout_method"] == "promptpay":
+        payout_text = f"พร้อมเพย์: {req['payout_account']}"
+    elif req["payout_method"] == "bank":
+        payout_text = f"ธนาคาร {req['bank_name'] or ''} เลขที่ {req['payout_account']}"
+    elif req["payout_method"] == "store_credit":
+        payout_text = "Store Credit (เครดิตซื้อหนังสือในร้าน)"
+
+    items_rows = ""
+    for idx, it in enumerate(items, 1):
+        items_rows += f"""
+        <tr>
+          <td style="text-align:center;padding:6px;border:1px solid #ccc;">{idx}</td>
+          <td style="padding:6px;border:1px solid #ccc;"><b>{it.get('title')}</b><br><small style="color:#666;">ISBN: {it.get('isbn') or '-'}</small></td>
+          <td style="text-align:center;padding:6px;border:1px solid #ccc;">เกรด {it.get('grade','B')}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ccc;">฿{it.get('ref_price',0):,.0f}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ccc;font-weight:bold;color:#0f5f63;">฿{it.get('cash_offer',0):,.0f}</td>
+        </tr>
+        """
+
+    html = f"""<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>ใบปะหน้าพัสดุรับซื้อหนังสือ — {req["tracking_code"]}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ font-family: 'IBM Plex Sans Thai', sans-serif; background: #f4f6f8; margin: 0; padding: 20px; color: #1e293b; }}
+  .sheet {{ max-width: 680px; margin: 0 auto; background: #fff; border: 2px dashed #0f5f63; border-radius: 12px; padding: 24px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); }}
+  .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f5f63; padding-bottom: 14px; margin-bottom: 16px; }}
+  .logo {{ font-family: 'Chakra Petch', sans-serif; font-size: 22px; font-weight: 700; color: #0f5f63; }}
+  .badge-bb {{ background: #0f5f63; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 13px; font-weight: 600; }}
+  .tracking-box {{ text-align: center; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 18px; }}
+  .tracking-num {{ font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 700; letter-spacing: 2px; color: #0f5f63; margin-top: 6px; }}
+  .grid-address {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }}
+  .addr-card {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }}
+  .addr-card.to {{ background: #ecfdf5; border-color: #a7f3d0; }}
+  .addr-title {{ font-weight: 700; font-size: 13px; color: #64748b; margin-bottom: 4px; text-transform: uppercase; }}
+  .addr-name {{ font-weight: 700; font-size: 16px; color: #0f172a; margin-bottom: 4px; }}
+  .addr-detail {{ font-size: 13px; line-height: 1.5; color: #334155; }}
+  .table-items {{ width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }}
+  .summary-box {{ background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }}
+  .instructions {{ font-size: 12px; color: #64748b; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; line-height: 1.5; }}
+  .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 20px auto 0; padding: 12px; background: #0f5f63; color: #fff; font-size: 15px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; text-align: center; }}
+  .btn-print:hover {{ background: #0c4a4d; }}
+  @media print {{
+    body {{ background: #fff; padding: 0; }}
+    .sheet {{ border: 2px dashed #000; box-shadow: none; border-radius: 0; }}
+    .no-print {{ display: none !important; }}
+  }}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <div class="header">
+    <div class="logo">📚 BOOKSTORE BUY BACK</div>
+    <div class="badge-bb">ใบปะหน้าพัสดุรับซื้อคืน (หัก 30%)</div>
+  </div>
+
+  <div class="tracking-box">
+    <div style="font-size:12px;color:#64748b;">รหัสติดตามพัสดุส่งเข้าคลัง (Tracking Code)</div>
+    <div class="tracking-num">{req["tracking_code"]}</div>
+    <div style="margin-top:8px;">{barcode_svg}</div>
+  </div>
+
+  <div class="grid-address">
+    <div class="addr-card">
+      <div class="addr-title">ผู้ส่ง (FROM / SENDER)</div>
+      <div class="addr-name">{req["customer_name"]}</div>
+      <div class="addr-detail">โทร: {req["phone"]}<br>{req["address"]}</div>
+    </div>
+    <div class="addr-card to">
+      <div class="addr-title" style="color:#047857;">ผู้รับ (TO / WAREHOUSE)</div>
+      <div class="addr-name">{WAREHOUSE_INFO["name"]}</div>
+      <div class="addr-detail">{WAREHOUSE_INFO["address"]}<br>โทร: {WAREHOUSE_INFO["phone"]}</div>
+    </div>
+  </div>
+
+  <table class="table-items">
+    <thead>
+      <tr style="background:#f1f5f9;color:#334155;">
+        <th style="padding:6px;border:1px solid #ccc;width:36px;">#</th>
+        <th style="padding:6px;border:1px solid #ccc;text-align:left;">รายการหนังสือ</th>
+        <th style="padding:6px;border:1px solid #ccc;width:70px;">สภาพ</th>
+        <th style="padding:6px;border:1px solid #ccc;width:80px;text-align:right;">ราคาอ้างอิง</th>
+        <th style="padding:6px;border:1px solid #ccc;width:95px;text-align:right;">รับซื้อ (หัก 30%)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {items_rows}
+    </tbody>
+  </table>
+
+  <div class="summary-box">
+    <div>
+      <div style="font-size:13px;color:#166534;">ช่องทางรับเงินที่ระบุ:</div>
+      <div style="font-weight:bold;font-size:14px;color:#0f5f63;">{payout_text}</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:12px;color:#166534;">ยอดรับซื้อคืนประเมินรวม</div>
+      <div style="font-size:20px;font-weight:700;color:#0f5f63;">฿{req["total_offer_price"]:,.0f}</div>
+    </div>
+  </div>
+
+  <div class="instructions">
+    <b>คำแนะนำสำหรับผู้จัดส่ง:</b><br>
+    1. นำหนังสือบรรจุลงในกล่องพัสดุ พร้อมวัสดุกันกระแทก<br>
+    2. ตัดใบปะหน้านี้ติดบนหน้ากล่องให้เห็นรหัสบาร์โค้ดชัดเจน<br>
+    3. นำส่งพัสดุผ่านขนส่งใดก็ได้ตามสะดวก (ไปรษณีย์ไทย, Flash, Kerry, J&T)<br>
+    4. เมื่อพัสดุถึงคลัง เจ้าหน้าที่จะตรวจสภาพจริงและโอนเงินภายใน 24 ชม.
+  </div>
+
+  <button class="btn-print no-print" onclick="window.print()">🖨️ พิมพ์ใบปะหน้านี้</button>
+</div>
+
+</body>
+</html>"""
+    return html
+
+
+# ================================================================
+# E-Commerce Cart & Multi-Item Checkout
+# ================================================================
+
+def api_cart_quote(p):
+    """คำนวณราคารถเข็นสินค้า รวมค่าจัดส่ง"""
+    copy_ids = p.get("copy_ids") or p.get("items") or []
+    if not copy_ids:
+        return {"ok": True, "items": [], "count": 0, "item_count": 0, "subtotal": 0, "shipping_cost": 0, "total_amount": 0}
+
+    conn = db()
+    q_marks = ",".join(["?"] * len(copy_ids))
+    rows = conn.execute(
+        f"SELECT c.id copy_id, c.grade, c.price, c.shelf, c.code, c.status,"
+        f"       t.id title_id, t.title, t.author, t.cover_price, t.cover_path"
+        f"  FROM copies c JOIN titles t ON t.id = c.title_id"
+        f" WHERE c.id IN ({q_marks})",
+        copy_ids
+    ).fetchall()
+    conn.close()
+
+    items = []
+    subtotal = 0.0
+    for r in rows:
+        d = dict(r)
+        d["grade_label"] = GRADE_LABEL.get(d["grade"], d["grade"])
+        items.append(d)
+        subtotal += float(d["price"] or 0)
+
+    free_threshold = 500.0
+    shipping_cost = 0.0 if subtotal >= free_threshold or subtotal == 0 else 40.0
+    total_amount = subtotal + shipping_cost
+
+    return {
+        "ok": True,
+        "items": items,
+        "count": len(items),
+        "item_count": len(items),
+        "subtotal": subtotal,
+        "shipping_cost": shipping_cost,
+        "free_shipping_threshold": free_threshold,
+        "free_shipping": (subtotal >= free_threshold),
+        "total_amount": total_amount
+    }
+
+
+def api_cart_checkout(p, user=None):
+    """สั่งซื้อสินค้าหลายชิ้นพร้อมกันในตะกร้า + เลือกระบบชำระเงิน"""
+    name = (p.get("customer_name") or p.get("name") or "").strip()
+    if not name:
+        return {"error": "กรุณากรอกชื่อ-นามสกุล"}
+    phone = (p.get("phone") or "").strip()
+    if len(re.sub(r"\D", "", phone)) < 9:
+        return {"error": "กรุณากรอกเบอร์โทรศัพท์ให้ถูกต้อง"}
+    address = (p.get("address") or "").strip()
+    if len(address) < 8:
+        return {"error": "กรุณากรอกที่อยู่จัดส่งให้ครบถ้วน"}
+
+    copy_ids = p.get("copy_ids") or p.get("items") or []
+    if not copy_ids:
+        return {"error": "ไม่มีรายการสินค้าในตะกร้า"}
+
+    payment_method = p.get("payment_method") or "promptpay"
+    note = (p.get("note") or "").strip()
+
+    conn = db()
+    q_marks = ",".join(["?"] * len(copy_ids))
+    rows = conn.execute(
+        f"SELECT c.id copy_id, c.grade, c.price, c.shelf, c.code, c.status,"
+        f"       t.id title_id, t.title, t.author, t.cover_price"
+        f"  FROM copies c JOIN titles t ON t.id = c.title_id"
+        f" WHERE c.id IN ({q_marks})",
+        copy_ids
+    ).fetchall()
+
+    if len(rows) != len(copy_ids):
+        conn.close()
+        return {"error": "หนังสือบางเล่มในตะกร้าไม่มีอยู่ในระบบ"}
+
+    unavailable = [r["title"] for r in rows if r["status"] != "in_stock"]
+    if unavailable:
+        conn.close()
+        return {"error": f"ขออภัยค่ะ หนังสือ '{unavailable[0]}' เพิ่งมีคนสั่งซื้อไปแล้ว"}
+
+    subtotal = sum(float(r["price"] or 0) for r in rows)
+    shipping_cost = 0.0 if subtotal >= 500 else 40.0
+    total_amount = subtotal + shipping_cost
+
+    conn.execute(f"UPDATE copies SET status='reserved' WHERE id IN ({q_marks})", copy_ids)
+
+    items_summary = [{
+        "copy_id": r["copy_id"], "title": r["title"], "price": r["price"],
+        "grade": r["grade"], "code": r["code"], "shelf": r["shelf"]
+    } for r in rows]
+
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    first_copy_id = copy_ids[0]
+
+    cur = conn.execute(
+        "INSERT INTO orders (copy_id, customer_name, phone, address, note, status,"
+        " items_json, shipping_cost, subtotal, total_amount, payment_method, created_at)"
+        " VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+        (first_copy_id, name, phone, address, note or None, json.dumps(items_summary, ensure_ascii=False),
+         shipping_cost, subtotal, total_amount, payment_method, now())
+    )
+    order_id = cur.lastrowid
+    order_code = f"ORD-{date_str}-{order_id:04d}"
+    conn.execute("UPDATE orders SET order_code=? WHERE id=?", (order_code, order_id))
+
+    pay_ref = None
+    if payment_method == "promptpay":
+        pay_ref = f"PP{order_id:05d}{secrets.token_hex(2).upper()}"
+        try:
+            payload = promptpay_payload(PROMPTPAY_ID, total_amount)
+            conn.execute(
+                "INSERT INTO payments(order_id, ref, amount, method, status, payload, created_at)"
+                " VALUES(?, ?, ?, 'promptpay', 'awaiting', ?, ?)",
+                (order_id, pay_ref, total_amount, payload, now())
+            )
+        except Exception:
+            pass
+    elif payment_method == "credit_card":
+        pay_ref = f"CC{order_id:05d}{secrets.token_hex(2).upper()}"
+        conn.execute(
+            "INSERT INTO payments(order_id, ref, amount, method, status, payload, created_at)"
+            " VALUES(?, ?, ?, 'credit_card', 'awaiting', 'card_simulated', ?)",
+            (order_id, pay_ref, total_amount, now())
+        )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "order_id": order_id,
+        "order_code": order_code,
+        "total_amount": total_amount,
+        "items_count": len(items_summary),
+        "payment_method": payment_method,
+        "payment_ref": pay_ref
+    }
+
+
+def api_order_track(query_val):
+    """ติดตามสถานะคำสั่งซื้อ ด้วยรหัสออเดอร์ ORD-xxx หรือเบอร์โทรศัพท์"""
+    q = (query_val or "").strip()
+    if not q:
+        return {"error": "กรุณาระบุรหัสคำสั่งซื้อหรือเบอร์โทรศัพท์"}
+
+    conn = db()
+    rows = conn.execute(
+        "SELECT * FROM orders WHERE order_code=? OR id=? OR phone=? ORDER BY id DESC LIMIT 10",
+        (q, int(q) if q.isdigit() else -1, q)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return {"ok": True, "found": False, "results": []}
+
+    status_map = {
+        "pending": {"step": 1, "label": "รอชำระเงิน", "desc": "รอการชำระเงินจากลูกค้า"},
+        "paid": {"step": 2, "label": "ชำระแล้ว กำลังเตรียมส่ง", "desc": "ได้รับยอดชำระแล้ว กำลังแพ็คหนังสือและเตรียมส่งมอบขนส่ง"},
+        "shipped": {"step": 3, "label": "จัดส่งเรียบร้อยแล้ว", "desc": "ส่งพัสดุให้ขนส่งแล้ว พร้อมเลขติดตามพัสดุ"},
+        "cancelled": {"step": -1, "label": "ยกเลิกคำสั่งซื้อ", "desc": "คำสั่งซื้อถูกยกเลิกแล้ว"}
+    }
+
+    results = []
+    for r in rows:
+        d = dict(r)
+        st = d["status"]
+        info = status_map.get(st, {"step": 1, "label": st, "desc": ""})
+        d["status_label"] = info["label"]
+        d["status_step"] = info["step"]
+        d["status_desc"] = info["desc"]
+
+        items = []
+        if d.get("items_json"):
+            try: items = json.loads(d["items_json"])
+            except Exception: pass
+        if not items and d.get("copy_id"):
+            conn2 = db()
+            c = conn2.execute("SELECT c.price, c.grade, c.code, t.title FROM copies c JOIN titles t ON t.id=c.title_id WHERE c.id=?", (d["copy_id"],)).fetchone()
+            conn2.close()
+            if c:
+                items = [dict(c)]
+        d["items"] = items
+        results.append(d)
+
+    return {"ok": True, "found": True, "results": results}
+
+
+# ================================================================
+# ระบบสมาชิก (Customer Accounts & Social Login)
+# ================================================================
+
+def api_customer_auth(p):
+    """สมัครและเข้าสู่ระบบลูกค้า รองรับ Social Login (Google, Facebook, LINE)"""
+    provider = p.get("provider") or "email"
+    conn = db()
+
+    if provider in ("google", "facebook", "line"):
+        email = (p.get("email") or f"{provider}_user_{secrets.token_hex(2)}@ai4you.click").strip().lower()
+        name = (p.get("name") or f"ลูกค้า {provider.upper()}").strip()
+        phone = (p.get("phone") or "").strip()
+        address = (p.get("address") or "").strip()
+
+        row = conn.execute("SELECT * FROM customers WHERE email=?", (email,)).fetchone()
+        if not row:
+            conn.execute(
+                "INSERT INTO customers (email, name, phone, address, provider, store_credit, created_at)"
+                " VALUES (?, ?, ?, ?, ?, 0.0, ?)",
+                (email, name, phone, address, provider, now())
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM customers WHERE email=?", (email,)).fetchone()
+        elif (phone or address) and (not row["phone"] or not row["address"]):
+            conn.execute("UPDATE customers SET phone=COALESCE(NULLIF(phone,''), ?), address=COALESCE(NULLIF(address,''), ?) WHERE id=?",
+                         (phone, address, row["id"]))
+            conn.commit()
+            row = conn.execute("SELECT * FROM customers WHERE id=?", (row["id"],)).fetchone()
+
+        conn.close()
+        cust = dict(row)
+        token = make_token(cust["email"], role="customer")
+        return {"ok": True, "token": token, "role": "customer", "customer": cust}
+
+    email = (p.get("email") or "").strip().lower()
+    password = p.get("password") or ""
+    action = p.get("action") or "login"
+
+    if not email or "@" not in email:
+        conn.close()
+        return {"error": "กรุณาระบุอีเมลที่ถูกต้อง"}
+    if len(password) < 4:
+        conn.close()
+        return {"error": "รหัสผ่านต้องมีความยาวอย่างน้อย 4 ตัวอักษร"}
+
+    pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+    row = conn.execute("SELECT * FROM customers WHERE email=?", (email,)).fetchone()
+
+    if action == "register":
+        if row:
+            conn.close()
+            return {"error": "อีเมลนี้มีอยู่ในระบบแล้ว กรุณาเข้าสู่ระบบ"}
+        name = (p.get("name") or email.split("@")[0]).strip()
+        phone = (p.get("phone") or "").strip()
+        address = (p.get("address") or "").strip()
+        conn.execute(
+            "INSERT INTO customers (email, password_hash, name, phone, address, provider, store_credit, created_at)"
+            " VALUES (?, ?, ?, ?, ?, 'email', 0.0, ?)",
+            (email, pwd_hash, name, phone, address, now())
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM customers WHERE email=?", (email,)).fetchone()
+        conn.close()
+        cust = dict(row)
+        cust.pop("password_hash", None)
+        token = make_token(cust["email"], role="customer")
+        return {"ok": True, "token": token, "role": "customer", "customer": cust}
+
+    if not row:
+        conn.close()
+        return {"error": "ไม่พบบัญชีผู้ใช้นี้ กรุณาสมัครสมาชิก"}
+    if row["password_hash"] and row["password_hash"] != pwd_hash:
+        conn.close()
+        return {"error": "รหัสผ่านไม่ถูกต้อง"}
+
+    conn.close()
+    cust = dict(row)
+    cust.pop("password_hash", None)
+    token = make_token(cust["email"], role="customer")
+    return {"ok": True, "token": token, "role": "customer", "customer": cust}
+
+
+def api_customer_profile(user):
+    """ดึงข้อมูลโปรไฟล์ลูกค้า + ประวัติคำสั่งซื้อ + ประวัติคำขอขายคืน"""
+    conn = db()
+    row = conn.execute("SELECT * FROM customers WHERE email=? OR name=?", (user, user)).fetchone()
+    cust = dict(row) if row else {"name": user or "ลูกค้า", "email": user or "", "store_credit": 0.0}
+    cust.pop("password_hash", None)
+
+    phone = cust.get("phone") or ""
+    email = cust.get("email") or ""
+    name = cust.get("name") or ""
+    orders = conn.execute(
+        "SELECT id, order_code, customer_name, phone, status, total_amount, created_at, tracking"
+        "  FROM orders WHERE (phone <> '' AND phone=?) OR customer_name=? ORDER BY id DESC LIMIT 5",
+        (phone, name)
+    ).fetchall()
+
+    buybacks = conn.execute(
+        "SELECT id, tracking_code, customer_name, phone, status, total_offer_price, payout_method, created_at"
+        "  FROM buyback_requests WHERE (phone <> '' AND phone=?) OR customer_name=? ORDER BY id DESC LIMIT 5",
+        (phone, name)
+    ).fetchall()
+
+    conn.close()
+    ord_list = [dict(o) for o in orders]
+    bb_list = [dict(b) for b in buybacks]
+    return {
+        "ok": True,
+        "customer": cust,
+        "recent_orders": ord_list,
+        "orders": ord_list,
+        "recent_buybacks": bb_list,
+        "buybacks": bb_list,
+        "store_credit": cust.get("store_credit", 0.0)
+    }
+
+
+def api_customer_profile_update(p, user):
+    """อัปเดตข้อมูลส่วนตัวและที่อยู่จัดส่งของลูกค้า"""
+    conn = db()
+    row = conn.execute("SELECT * FROM customers WHERE email=? OR name=?", (user, user)).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "ไม่พบบัญชีลูกค้า"}
+    cid = row["id"]
+    name = (p.get("name") or row["name"]).strip()
+    phone = (p.get("phone") or row["phone"] or "").strip()
+    address = (p.get("address") or row["address"] or "").strip()
+    conn.execute("UPDATE customers SET name=?, phone=?, address=? WHERE id=?",
+                 (name, phone, address, cid))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "customer": {"id": cid, "email": row["email"], "name": name, "phone": phone, "address": address}}
+
+
 # ---------------------------------------------------------------- http
 
 # ---------------------------------------------------------------- Messenger (เพจเฟซบุ๊ก)
@@ -2306,6 +3056,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, query.get("hub.challenge", ""), "text/plain; charset=utf-8")
             return self._send(403, {"error": "forbidden"})
 
+        if path == "/buyback-label":
+            html = api_buyback_label_html(query.get("code") or "")
+            if not html:
+                return self._send(404, "ไม่พบรหัสติดตามพัสดุนี้", "text/plain; charset=utf-8")
+            return self._send(200, html, "text/html; charset=utf-8")
+        if path == "/api/buyback/label":
+            if query.get("format") == "html":
+                html = api_buyback_label_html(query.get("code") or "")
+                if not html:
+                    return self._send(404, {"error": "not found"})
+                return self._send(200, html, "text/html; charset=utf-8")
+            return self._send(200, api_buyback_track(query.get("code") or ""))
+        if path == "/api/buyback/track":
+            return self._send(200, api_buyback_track(query.get("query") or query.get("code") or query.get("phone") or query.get("q")))
+        if path == "/api/order/track":
+            return self._send(200, api_order_track(query.get("query") or query.get("code") or query.get("order_id") or query.get("phone") or query.get("q")))
+        if path == "/api/cart/quote":
+            cids = [int(x) for x in (query.get("copy_ids") or "").split(",") if x.isdigit()]
+            return self._send(200, api_cart_quote({"copy_ids": cids}))
+
         # ยังไม่ล็อกอิน: หน้าแรกส่งหน้าล็อกอินให้ (URL เดิม ไม่ต้อง redirect
         # เพราะแอปอยู่ใต้ path /bookstore-demo/ ของ nginx — redirect จะพาไปผิดที่)
         user, role = self._session()
@@ -2349,23 +3119,34 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return self._send(500, {"error": f"สร้าง QR ไม่ได้: {exc}"})
 
-        # บัญชีลูกค้าเข้าได้แค่แชท — กันที่เซิร์ฟเวอร์ ไม่ใช่แค่ซ่อนแท็บในหน้าเว็บ
-        # (ถ้ากันแค่หน้าเว็บ ลูกค้าเปิด URL /api/stats ตรงๆ ก็เห็นข้อมูลร้านทั้งหมด)
-        if role == "customer":
-            return self._send(403, {"error": "บัญชีนี้ใช้ได้เฉพาะการถาม-ตอบหาหนังสือ"})
-
+        # ข้อมูลที่ทั้งลูกค้าและพนักงานเข้าถึงได้
+        if path == "/api/customer/profile":
+            return self._send(200, api_customer_profile(user))
+        if path == "/api/customer/orders":
+            return self._send(200, api_order_track(query.get("phone") or user))
+        if path == "/api/customer/buyback-requests":
+            return self._send(200, api_buyback_track(query.get("phone") or user))
         if path == "/api/search":
             return self._send(200, api_search(query.get("q")))
         if path == "/api/lookup":
             return self._send(200, api_lookup(query.get("isbn")))
+        if path == "/api/categories":
+            return self._send(200, {"categories": CATEGORIES})
+        if path == "/api/grades":
+            return self._send(200, {"factors": GRADE_FACTOR, "labels": GRADE_LABEL,
+                                     "buyback_rate": BUYBACK_RATE,
+                                     "buyback_deduction_pct": BUYBACK_DEDUCTION_PCT})
+
+        # ฟังก์ชันหลังบ้านสำหรับพนักงานเท่านั้น
+        if role != "staff":
+            return self._send(403, {"error": "ไม่มีสิทธิ์เข้าถึงส่วนงานพนักงาน"})
+
         if path == "/api/stats":
             return self._send(200, api_stats())
         if path == "/api/orders":
             return self._send(200, api_orders())
         if path == "/api/timing-stats":
             return self._send(200, api_timing_stats())
-        if path == "/api/categories":
-            return self._send(200, {"categories": CATEGORIES})
         if path == "/api/shelves":
             return self._send(200, api_shelves())
         if path == "/api/copy-lookup":
@@ -2378,9 +3159,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, make_barcode_svg(code), "image/svg+xml")
             except Exception as exc:
                 return self._send(500, {"error": f"สร้างบาร์โค้ดไม่ได้: {exc}"})
-        if path == "/api/grades":
-            return self._send(200, {"factors": GRADE_FACTOR, "labels": GRADE_LABEL,
-                                    "buyback_rate": BUYBACK_RATE})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -2399,6 +3177,29 @@ class Handler(BaseHTTPRequestHandler):
                         threading.Thread(target=fb_handle_event, args=(ev,), daemon=True).start()
             return self._send(200, "EVENT_RECEIVED", "text/plain; charset=utf-8")
         p = self._read_json()
+
+        # สมัคร/เข้าสู่ระบบลูกค้า (Social Login & Email)
+        if path == "/api/customer/auth":
+            res = api_customer_auth(p)
+            if res.get("ok"):
+                return self._send(200, res, extra=self._set_cookie(res["token"]))
+            return self._send(400, res)
+
+        # บริการคำนวณและสั่งซื้อสาธารณะ (ตะกร้าสินค้า & ประเมินรับซื้อคืน)
+        if path == "/api/cart/quote":
+            return self._send(200, api_cart_quote(p))
+        if path == "/api/cart/checkout":
+            user, _ = self._session()
+            return self._send(200, api_cart_checkout(p, user))
+        if path == "/api/buyback/estimate":
+            return self._send(200, api_buyback_estimate(p))
+        if path == "/api/buyback/create":
+            user, _ = self._session()
+            return self._send(200, api_buyback_create(p, user))
+        if path == "/api/buyback/track":
+            return self._send(200, api_buyback_track(p.get("code") or p.get("phone")))
+        if path == "/api/order/track":
+            return self._send(200, api_order_track(p.get("code") or p.get("phone") or p.get("order_id")))
 
         if path == "/api/login":
             if p.get("quick_customer"):
@@ -2423,26 +3224,24 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             return self._send(401, {"error": "ต้องเข้าสู่ระบบก่อน", "auth": False})
 
-        # บัญชีลูกค้าโพสต์ได้เฉพาะ /api/chat และถูกบังคับให้เป็นโหมดลูกค้าเสมอ
-        # (ส่ง mode:"staff" มาเองก็ไม่มีผล เพราะสิทธิ์อยู่ใน token ที่เซ็นไว้)
+        # บัญชีลูกค้า
         if role == "customer":
-            # ลูกค้าสั่งซื้อและจ่ายเงินได้ แต่ยังแตะหลังร้านอย่างอื่นไม่ได้
+            if path == "/api/customer/profile-update":
+                return self._send(200, api_customer_profile_update(p, user))
             if path == "/api/order":
                 return self._send(200, api_order(p))
             if path == "/api/payment-create":
                 return self._send(200, api_payment_create(p.get("order_id")))
             if path == "/api/payment-confirm":
-                # ของจริงคือ webhook จากผู้ให้บริการรับชำระเงิน ไม่ใช่ให้ลูกค้ากดเอง
-                # เปิดให้กดได้เฉพาะโหมดเดโม เพื่อโชว์เส้นทางครบโดยไม่ต้องโอนจริง
                 if not PAYMENT_DEMO:
                     return self._send(403, {"error": "ปิดการยืนยันเองในโหมดใช้งานจริง"})
                 return self._send(200, api_payment_confirm(p.get("ref")))
-            if path != "/api/chat":
-                return self._send(403, {"error": "บัญชีนี้ใช้ได้เฉพาะการถาม-ตอบหาหนังสือ"})
-            history = p.get("messages") or []
-            if not history:
-                return self._send(400, {"error": "ไม่มีข้อความ"})
-            return self._send(200, api_chat(history, "customer"))
+            if path == "/api/chat":
+                history = p.get("messages") or []
+                if not history:
+                    return self._send(400, {"error": "ไม่มีข้อความ"})
+                return self._send(200, api_chat(history, "customer"))
+            return self._send(403, {"error": "ไม่มีสิทธิ์เข้าถึงส่วนงานนี้"})
 
         if path == "/api/ai-read":
             mt = p.get("media_type", "image/jpeg")
