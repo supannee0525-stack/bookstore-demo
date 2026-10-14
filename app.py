@@ -2455,10 +2455,17 @@ def api_payment_create(order_id):
 def api_payment_status(ref):
     conn = db()
     p = conn.execute("SELECT * FROM payments WHERE ref=?", ((ref or "").strip(),)).fetchone()
-    conn.close()
     if not p:
+        conn.close()
         return {"error": "ไม่พบรายการชำระเงินนี้"}
-    return {"ok": True, "ref": p["ref"], "status": p["status"], "amount": p["amount"]}
+    order = conn.execute("SELECT id, order_code, channel, channel_user_id FROM orders WHERE id=?", (p["order_id"],)).fetchone()
+    conn.close()
+    return {
+        "ok": True, "ref": p["ref"], "status": p["status"], "amount": p["amount"],
+        "order_id": p["order_id"],
+        "order_code": order["order_code"] if order else "",
+        "channel": (order["channel"] if order else "") or ""
+    }
 
 
 def api_payment_confirm(ref):
@@ -3311,6 +3318,8 @@ def api_order_receipt_html(val):
 
   .actions-bar {{ display: flex; justify-content: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; }}
   .btn-act {{ display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; font-family: inherit; text-decoration: none; transition: 0.15s ease; }}
+  .btn-chat {{ background: #0084ff; color: #fff; }}
+  .btn-chat:hover {{ background: #0073e6; }}
   .btn-home {{ background: #0284c7; color: #fff; }}
   .btn-home:hover {{ background: #0369a1; }}
   .btn-print {{ background: #0f172a; color: #fff; }}
@@ -3453,6 +3462,7 @@ def api_order_receipt_html(val):
   </div>
 
   <div class="actions-bar no-print">
+    <a href="https://m.me/bakeryispoetry" class="btn-act btn-chat" onclick="try{{window.close();}}catch(e){{}}">💬 กลับไปยังแชท Messenger</a>
     <a href="./" class="btn-act btn-home">🏠 กลับหน้าร้าน</a>
     <button class="btn-act btn-print" onclick="window.print()">🖨️ พิมพ์ใบเสร็จ / ใบส่งของ</button>
     <button class="btn-act btn-close" onclick="window.close()">✕ ปิดหน้าต่าง</button>

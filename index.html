@@ -2232,6 +2232,10 @@ body.is-customer #customer-nav { display: flex !important; }
     <p class="pay-amount" id="pay-amount"></p>
     <p class="pay-ref">เลขอ้างอิง <span class="mono" id="pay-ref"></span></p>
     <p class="pay-state" id="pay-state"><span class="spin"></span> รอรับเงิน...</p>
+    <div id="pay-success-action" hidden style="margin-top:14px;text-align:center;">
+      <a id="btn-pay-return-chat" href="https://m.me/bakeryispoetry" class="btn" style="width:100%;text-decoration:none;display:inline-block;padding:12px;font-size:15px;background:#0084ff;color:#fff;border-radius:8px;font-weight:bold;box-shadow:0 4px 12px rgba(0,132,255,0.3);">💬 กลับไปยังแชท Messenger ทันที</a>
+      <p style="font-size:13px;color:#64748b;margin-top:8px;" id="pay-return-hint">ส่งสรุปเข้าแชทแล้ว กำลังพากลับใน <b id="pay-countdown" style="color:#0084ff;font-size:15px;">3</b> วินาที...</p>
+    </div>
     <div class="pay-demo" id="pay-demo" hidden>
       <p>โหมดสาธิต — ยังไม่ได้เชื่อมบัญชีธนาคารจริง จึงไม่มีการตัดเงิน</p>
       <button class="btn" id="btn-pay-simulate">จำลองว่าลูกค้าโอนแล้ว</button>
@@ -2667,17 +2671,39 @@ $('btn-order-confirm').addEventListener('click', async () => {
 
 /* ---------- ชำระเงินด้วย QR PromptPay ---------- */
 let payPollTimer = null;
+let payReturnTimer = null;
 let payRef = null;
 let payTitle = '';
 
-function stopPayPoll() { clearInterval(payPollTimer); payPollTimer = null; }
+function stopPayPoll() {
+  clearInterval(payPollTimer); payPollTimer = null;
+  clearInterval(payReturnTimer); payReturnTimer = null;
+}
 
 function closePayModal() {
   stopPayPoll();
+  if ($('pay-success-action')) $('pay-success-action').hidden = true;
   $('pay-box').hidden = true;
   payRef = null;
 }
 $('btn-pay-close').addEventListener('click', closePayModal);
+
+function triggerReturnToChat(channel) {
+  closePayModal();
+  if (channel === 'facebook') {
+    // 1. ถ้าเปิดผ่าน In-App Browser ของ Facebook Messenger (เช่น คลิกสั่งซื้อจากการ์ดในแชท)
+    // การเรียก window.close() จะปิดหน้าต่างเว็บทันที เผยให้เห็นห้องแชทเดิมที่มีข้อความสรุปออเดอร์เด้งขึ้นมาใหม่
+    try { window.close(); } catch (e) {}
+    // 2. ถ้าเปิดในเบราว์เซอร์แยก (Safari, Chrome) ให้เด้ง Deep Link เปิดเข้าห้องแชทของเพจทันที
+    setTimeout(() => {
+      window.location.href = 'https://m.me/bakeryispoetry';
+    }, 250);
+  } else if (channel === 'line') {
+    try { window.close(); } catch (e) {}
+  } else {
+    switchTab('search');
+  }
+}
 
 async function openPayModal(orderId, title) {
   const r = await post('payment-create', {order_id: orderId});
@@ -2689,6 +2715,7 @@ async function openPayModal(orderId, title) {
   $('pay-qr').src = API('payment-qr?ref=' + encodeURIComponent(r.ref));
   $('pay-state').className = 'pay-state';
   $('pay-state').innerHTML = '<span class="spin"></span> รอรับเงิน...';
+  if ($('pay-success-action')) $('pay-success-action').hidden = true;
   $('pay-demo').hidden = !r.demo;
   $('btn-pay-simulate').disabled = false;
   $('pay-box').hidden = false;
@@ -2703,12 +2730,48 @@ async function checkPayStatus() {
   if (s.status !== 'paid') return;
   stopPayPoll();
   $('pay-state').className = 'pay-state paid';
-  $('pay-state').textContent = '✓ ได้รับเงินแล้ว ขอบคุณค่ะ';
+  $('pay-state').innerHTML = '✓ ได้รับเงินเรียบร้อยแล้ว ขอบคุณค่ะ 🎉';
   $('pay-demo').hidden = true;
   addMsg('bot', `ได้รับเงินเรียบร้อยแล้วค่ะ ✅<br>"${esc(payTitle)}" ${baht(s.amount)}`
     + `<br>เลขอ้างอิง <span class="mono">${esc(payRef)}</span>`
     + '<br>ทางร้านจะจัดส่งตามที่อยู่ที่แจ้งไว้ และแจ้งเลขพัสดุให้ทราบค่ะ');
-  setTimeout(closePayModal, 1800);
+
+  const channel = s.channel || sessionStorage.getItem('bookstore_order_channel') || '';
+  const returnBox = $('pay-success-action');
+  const returnBtn = $('btn-pay-return-chat');
+  const cdEl = $('pay-countdown');
+
+  if (channel === 'facebook') {
+    if (returnBox) returnBox.hidden = false;
+    let secondsLeft = 3;
+    if (cdEl) cdEl.textContent = secondsLeft;
+    clearInterval(payReturnTimer);
+    payReturnTimer = setInterval(() => {
+      secondsLeft--;
+      if (cdEl) cdEl.textContent = secondsLeft;
+      if (secondsLeft <= 0) {
+        clearInterval(payReturnTimer);
+        triggerReturnToChat('facebook');
+      }
+    }, 1000);
+
+    if (returnBtn) {
+      returnBtn.onclick = (e) => {
+        clearInterval(payReturnTimer);
+        triggerReturnToChat('facebook');
+      };
+    }
+  } else if (channel === 'line') {
+    if (returnBox) returnBox.hidden = false;
+    if (returnBtn) {
+      returnBtn.href = '#';
+      returnBtn.textContent = '💬 กลับไปยังแชท LINE ทันที';
+      returnBtn.style.background = '#06c755';
+    }
+    setTimeout(() => { triggerReturnToChat('line'); }, 2500);
+  } else {
+    setTimeout(closePayModal, 1800);
+  }
 }
 
 $('btn-pay-simulate').addEventListener('click', async () => {
