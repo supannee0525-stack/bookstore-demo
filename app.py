@@ -2323,7 +2323,12 @@ def make_barcode_svg(code):
                        capture_output=True, timeout=15)
     if r.returncode != 0 or not r.stdout:
         raise RuntimeError((r.stderr or b"").decode()[:200] or "zint ไม่ตอบ")
-    return r.stdout
+    svg_text = r.stdout.decode("utf-8")
+    m = re.search(r'<svg\s+width="(\d+)"\s+height="(\d+)"', svg_text)
+    if m and "viewBox" not in svg_text:
+        w, h = m.group(1), m.group(2)
+        svg_text = re.sub(r'<svg\s+width="\d+"\s+height="\d+"', f'<svg viewBox="0 0 {w} {h}"', svg_text, count=1)
+    return svg_text.encode("utf-8")
 
 
 def make_qr_svg(payload):
@@ -2333,7 +2338,12 @@ def make_qr_svg(payload):
                        capture_output=True, timeout=15)
     if r.returncode != 0 or not r.stdout:
         raise RuntimeError((r.stderr or b"").decode()[:200] or "zint ไม่ตอบ")
-    return r.stdout
+    svg_text = r.stdout.decode("utf-8")
+    m = re.search(r'<svg\s+width="(\d+)"\s+height="(\d+)"', svg_text)
+    if m and "viewBox" not in svg_text:
+        w, h = m.group(1), m.group(2)
+        svg_text = re.sub(r'<svg\s+width="\d+"\s+height="\d+"', f'<svg viewBox="0 0 {w} {h}"', svg_text, count=1)
+    return svg_text.encode("utf-8")
 
 
 # ---------- PromptPay QR ----------
@@ -3051,32 +3061,47 @@ def api_buyback_label_html(code):
 <html lang="th">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <title>ใบปะหน้าพัสดุรับซื้อหนังสือ — {req["tracking_code"]}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
 <style>
   * {{ box-sizing: border-box; }}
-  body {{ font-family: 'IBM Plex Sans Thai', sans-serif; background: #f4f6f8; margin: 0; padding: 20px; color: #1e293b; }}
-  .sheet {{ max-width: 680px; margin: 0 auto; background: #fff; border: 2px dashed #0f5f63; border-radius: 12px; padding: 24px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); }}
-  .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f5f63; padding-bottom: 14px; margin-bottom: 16px; }}
+  body {{ font-family: 'IBM Plex Sans Thai', sans-serif; background: #f4f6f8; margin: 0; padding: 20px 16px; color: #1e293b; -webkit-text-size-adjust: 100%; }}
+  .sheet {{ max-width: 680px; margin: 0 auto; background: #fff; border: 2px dashed #0f5f63; border-radius: 12px; padding: 24px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); width: 100%; overflow: hidden; }}
+  .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f5f63; padding-bottom: 14px; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }}
   .logo {{ font-family: 'Chakra Petch', sans-serif; font-size: 22px; font-weight: 700; color: #0f5f63; }}
   .badge-bb {{ background: #0f5f63; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 13px; font-weight: 600; }}
-  .tracking-box {{ text-align: center; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 18px; }}
-  .tracking-num {{ font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 700; letter-spacing: 2px; color: #0f5f63; margin-top: 6px; }}
+  .tracking-box {{ text-align: center; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 18px; overflow: hidden; }}
+  .tracking-num {{ font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 700; letter-spacing: 2px; color: #0f5f63; margin-top: 6px; word-break: break-all; }}
+  .tracking-box svg {{ width: 100% !important; max-width: 420px !important; height: auto !important; display: block; margin: 0 auto; }}
   .grid-address {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }}
-  .addr-card {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }}
+  .addr-card {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; min-width: 0; }}
   .addr-card.to {{ background: #ecfdf5; border-color: #a7f3d0; }}
   .addr-title {{ font-weight: 700; font-size: 13px; color: #64748b; margin-bottom: 4px; text-transform: uppercase; }}
-  .addr-name {{ font-weight: 700; font-size: 16px; color: #0f172a; margin-bottom: 4px; }}
-  .addr-detail {{ font-size: 13px; line-height: 1.5; color: #334155; }}
-  .table-items {{ width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }}
-  .summary-box {{ background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }}
+  .addr-name {{ font-weight: 700; font-size: 16px; color: #0f172a; margin-bottom: 4px; word-break: break-word; }}
+  .addr-detail {{ font-size: 13px; line-height: 1.5; color: #334155; word-break: break-word; }}
+  .table-wrap {{ width: 100%; overflow-x: auto; margin-bottom: 16px; -webkit-overflow-scrolling: touch; }}
+  .table-items {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+  .summary-box {{ background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }}
   .instructions {{ font-size: 12px; color: #64748b; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; line-height: 1.5; }}
   .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 20px auto 0; padding: 12px; background: #0f5f63; color: #fff; font-size: 15px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; text-align: center; }}
   .btn-print:hover {{ background: #0c4a4d; }}
+
+  @media (max-width: 640px) {{
+    body {{ padding: 10px 8px; }}
+    .sheet {{ padding: 16px 14px; }}
+    .header {{ flex-direction: column; align-items: flex-start; gap: 8px; }}
+    .grid-address {{ grid-template-columns: 1fr; gap: 10px; }}
+    .summary-box {{ flex-direction: column; align-items: flex-start; gap: 8px; }}
+    .summary-box div:last-child {{ text-align: left; }}
+    .btn-print {{ max-width: 100%; }}
+  }}
+
   @media print {{
     body {{ background: #fff; padding: 0; }}
     .sheet {{ border: 2px dashed #000; box-shadow: none; border-radius: 0; }}
+    .table-wrap {{ overflow: visible; }}
     .no-print {{ display: none !important; }}
   }}
 </style>
@@ -3108,6 +3133,7 @@ def api_buyback_label_html(code):
     </div>
   </div>
 
+  <div class="table-wrap">
   <table class="table-items">
     <thead>
       <tr style="background:#f1f5f9;color:#334155;">
@@ -3122,6 +3148,7 @@ def api_buyback_label_html(code):
       {items_rows}
     </tbody>
   </table>
+  </div>
 
   <div class="summary-box">
     <div>
@@ -3238,57 +3265,82 @@ def api_order_receipt_html(val):
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <title>ใบเสร็จรับเงิน / ใบจัดส่งสินค้า — {order_code}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
 <style>
   * {{ box-sizing: border-box; }}
-  body {{ font-family: 'IBM Plex Sans Thai', sans-serif; background: #f1f5f9; margin: 0; padding: 24px; color: #0f172a; }}
-  .sheet {{ max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }}
-  .header {{ display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 18px; margin-bottom: 20px; }}
+  body {{ font-family: 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif; background: #f1f5f9; margin: 0; padding: 20px 16px; color: #0f172a; -webkit-text-size-adjust: 100%; }}
+  .sheet {{ max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); width: 100%; overflow: hidden; }}
+  .header {{ display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 18px; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }}
   .brand-title {{ font-family: 'Chakra Petch', sans-serif; font-size: 24px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px; }}
-  .brand-sub {{ font-size: 13px; color: #475569; margin-top: 4px; line-height: 1.4; }}
-  .receipt-meta {{ text-align: right; }}
+  .brand-sub {{ font-size: 13px; color: #475569; margin-top: 4px; line-height: 1.45; word-break: break-word; }}
+  .receipt-meta {{ text-align: right; flex-shrink: 0; }}
   .receipt-badge {{ display: inline-block; padding: 4px 12px; border-radius: 6px; font-weight: 700; font-size: 13px; margin-bottom: 6px; background: {status_bg}; color: {status_color}; }}
-  .receipt-no {{ font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 700; color: #0f172a; }}
+  .receipt-no {{ font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 700; color: #0f172a; word-break: break-all; }}
   .receipt-date {{ font-size: 12px; color: #64748b; margin-top: 2px; }}
   
   .grid-info {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }}
-  .info-box {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; background: #f8fafc; }}
+  .info-box {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; background: #f8fafc; min-width: 0; }}
   .info-title {{ font-weight: 700; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }}
-  .info-name {{ font-weight: 700; font-size: 15px; color: #0f172a; margin-bottom: 4px; }}
-  .info-text {{ font-size: 13px; color: #334155; line-height: 1.5; }}
+  .info-name {{ font-weight: 700; font-size: 15px; color: #0f172a; margin-bottom: 4px; word-break: break-word; }}
+  .info-text {{ font-size: 13px; color: #334155; line-height: 1.5; word-break: break-word; }}
   
-  .table-items {{ width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px; }}
-  .table-items th {{ background: #0f172a; color: #fff; padding: 10px 8px; text-align: left; font-weight: 600; font-size: 12px; }}
-  .table-items td {{ padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }}
+  .table-wrap {{ width: 100%; overflow-x: auto; margin-bottom: 20px; -webkit-overflow-scrolling: touch; border: 1px solid #e2e8f0; border-radius: 8px; }}
+  .table-items {{ width: 100%; border-collapse: collapse; font-size: 13px; min-width: 480px; }}
+  .table-items th {{ background: #0f172a; color: #fff; padding: 10px 10px; text-align: left; font-weight: 600; font-size: 12px; white-space: nowrap; }}
+  .table-items td {{ padding: 10px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }}
+  .table-items tr:last-child td {{ border-bottom: none; }}
   
-  .summary-wrap {{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 20px; }}
-  .barcode-card {{ flex: 1; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px; text-align: center; background: #fafafa; }}
-  .barcode-svg {{ display: flex; justify-content: center; margin-bottom: 4px; }}
-  .totals-table {{ width: 280px; border-collapse: collapse; font-size: 13px; }}
+  .summary-wrap {{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 20px; flex-wrap: wrap; }}
+  .barcode-card {{ flex: 1; min-width: 250px; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 14px; text-align: center; background: #fafafa; overflow: hidden; }}
+  .barcode-svg {{ display: flex; justify-content: center; align-items: center; margin-bottom: 6px; width: 100%; overflow: hidden; }}
+  .barcode-svg svg {{ width: 100% !important; max-width: 380px !important; height: auto !important; display: block; margin: 0 auto; }}
+  .totals-table {{ width: 290px; border-collapse: collapse; font-size: 13px; }}
   .totals-table td {{ padding: 6px 0; }}
   .totals-table tr.total-row td {{ border-top: 2px solid #0f172a; padding-top: 10px; font-size: 17px; font-weight: 700; color: #0f172a; }}
   
   .checklist-card {{ border: 1px solid #fde68a; border-radius: 8px; padding: 14px; margin-bottom: 24px; background: #fffbeb; }}
-  .checklist-title {{ font-weight: 700; font-size: 13px; color: #92400e; margin-bottom: 6px; }}
+  .checklist-title {{ font-weight: 700; font-size: 13px; color: #92400e; margin-bottom: 8px; }}
   .checklist-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #78350f; }}
   
-  .sig-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 20px; padding-top: 16px; border-top: 1px dashed #cbd5e1; font-size: 13px; color: #475569; }}
+  .sig-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 36px; margin-top: 20px; padding-top: 16px; border-top: 1px dashed #cbd5e1; font-size: 13px; color: #475569; }}
   .sig-line {{ margin-top: 36px; border-bottom: 1px solid #94a3b8; }}
   .sig-lbl {{ text-align: center; margin-top: 6px; font-size: 12px; }}
 
-  .actions-bar {{ display: flex; justify-content: center; gap: 12px; margin-top: 24px; }}
-  .btn-act {{ padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; font-family: inherit; }}
+  .actions-bar {{ display: flex; justify-content: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; }}
+  .btn-act {{ display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; font-family: inherit; text-decoration: none; transition: 0.15s ease; }}
+  .btn-home {{ background: #0284c7; color: #fff; }}
+  .btn-home:hover {{ background: #0369a1; }}
   .btn-print {{ background: #0f172a; color: #fff; }}
   .btn-print:hover {{ background: #334155; }}
   .btn-close {{ background: #e2e8f0; color: #334155; }}
   .btn-close:hover {{ background: #cbd5e1; }}
 
+  @media (max-width: 640px) {{
+    body {{ padding: 10px 8px; }}
+    .sheet {{ padding: 16px 14px; border-radius: 8px; }}
+    .header {{ flex-direction: column; align-items: stretch; gap: 12px; border-bottom-width: 2px; }}
+    .brand-title {{ font-size: 20px; }}
+    .receipt-meta {{ text-align: left; border-top: 1px dashed #cbd5e1; padding-top: 10px; }}
+    .receipt-no {{ font-size: 16px; }}
+    .grid-info {{ grid-template-columns: 1fr; gap: 12px; margin-bottom: 16px; }}
+    .summary-wrap {{ flex-direction: column-reverse; align-items: stretch; gap: 16px; margin-bottom: 18px; }}
+    .totals-table {{ width: 100%; }}
+    .totals-table tr.total-row td {{ font-size: 16px; }}
+    .barcode-card {{ width: 100%; min-width: 0; padding: 12px 8px; }}
+    .checklist-grid {{ grid-template-columns: 1fr; gap: 6px; }}
+    .sig-grid {{ grid-template-columns: 1fr; gap: 24px; }}
+    .actions-bar {{ flex-direction: column; gap: 8px; }}
+    .btn-act {{ width: 100%; }}
+  }}
+
   @media print {{
     body {{ background: #fff; padding: 0; }}
     .sheet {{ border: none; box-shadow: none; padding: 0; max-width: 100%; border-radius: 0; }}
+    .table-wrap {{ border: none; overflow: visible; margin-bottom: 20px; }}
+    .table-items {{ min-width: 100%; }}
     .no-print {{ display: none !important; }}
     @page {{ size: A4 portrait; margin: 12mm 15mm; }}
   }}
@@ -3332,6 +3384,7 @@ def api_order_receipt_html(val):
     </div>
   </div>
 
+  <div class="table-wrap">
   <table class="table-items">
     <thead>
       <tr>
@@ -3345,6 +3398,7 @@ def api_order_receipt_html(val):
       {items_rows}
     </tbody>
   </table>
+  </div>
 
   <div class="summary-wrap">
     <div class="barcode-card">
@@ -3393,6 +3447,7 @@ def api_order_receipt_html(val):
   </div>
 
   <div class="actions-bar no-print">
+    <a href="./" class="btn-act btn-home">🏠 กลับหน้าร้าน</a>
     <button class="btn-act btn-print" onclick="window.print()">🖨️ พิมพ์ใบเสร็จ / ใบส่งของ</button>
     <button class="btn-act btn-close" onclick="window.close()">✕ ปิดหน้าต่าง</button>
   </div>
