@@ -3449,7 +3449,12 @@ def fb_graph_post(path, body):
         _cfg("FB_GRAPH_URL", FB_GRAPH_DEFAULT).rstrip("/") + path,
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
-    return json.load(urllib.request.urlopen(req, timeout=20))
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=20))
+    except urllib.error.HTTPError as err:
+        err_body = err.read().decode("utf-8", errors="replace")
+        print(f"Meta Graph API error ({err.code}): {err_body}", file=sys.stderr, flush=True)
+        raise RuntimeError(f"Meta Graph API error ({err.code}): {err_body}") from err
 
 
 def fb_send(psid, text):
@@ -3472,6 +3477,82 @@ def fb_send_image(psid, fpath):
         headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
                  "Authorization": "Bearer " + _cfg("FB_PAGE_TOKEN")})
     return json.load(urllib.request.urlopen(req, timeout=60))
+
+
+def fb_send_book_cards(psid, books, max_cards=10):
+    """ส่งการ์ดหนังสือแบบ Generic Template Carousel บน Facebook Messenger ให้ลูกค้าเลื่อนดูและกดสั่งซื้อได้ทันที"""
+    elements = []
+    base_url = "https://ai4you.click/bookstore-demo"
+    for b in (books or [])[:max_cards]:
+        title = (b.get("title") or "").strip()
+        if not title:
+            continue
+        title = title[:80]
+        bid = b.get("id")
+        cover_file = b.get("cover_path")
+        if not cover_file and bid:
+            f = f"{bid}_0.jpg"
+            if (COVERS_DIR / f).is_file():
+                cover_file = f
+        cover_url = f"{base_url}/api/cover/{cover_file}" if (cover_file and (COVERS_DIR / cover_file).is_file()) else None
+
+        copies = b.get("copies") or []
+        in_stock_copies = [c for c in copies if c.get("status", "in_stock") == "in_stock" or c.get("id")]
+        author = (b.get("author") or "").strip()
+        author_part = f"โดย {author}" if author else ""
+        if in_stock_copies:
+            c0 = in_stock_copies[0]
+            cid = c0.get("id")
+            price = c0.get("price") or 0
+            glist = [f"เกรด {c.get('grade', 'A')} ฿{c.get('price', 0):g}" for c in in_stock_copies[:2]]
+            subtitle = f"{author_part} • {' / '.join(glist)}".strip(" •")[:80]
+            buy_url = f"{base_url}/?buy_copy={cid}"
+        else:
+            cid = None
+            price = 0
+            subtitle = author_part[:80] or "หนังสือมือสองคุณภาพดี"
+            buy_url = f"{base_url}/?tab=chat"
+
+        buttons = []
+        if cid:
+            buttons.append({
+                "type": "web_url",
+                "url": buy_url,
+                "title": f"🛒 สั่งซื้อ ฿{price:g}"[:20]
+            })
+        buttons.append({
+            "type": "web_url",
+            "url": f"{base_url}/?tab=chat",
+            "title": "📖 ดูรายละเอียด"[:20]
+        })
+
+        el = {
+            "title": title,
+            "subtitle": subtitle or "หนังสือพร้อมส่ง",
+            "buttons": buttons
+        }
+        if cover_url:
+            el["image_url"] = cover_url
+            el["default_action"] = {"type": "web_url", "url": buy_url}
+        elements.append(el)
+
+    if not elements:
+        return None
+
+    payload = {
+        "recipient": {"id": psid},
+        "messaging_type": "RESPONSE",
+        "message": {
+            "attachment": {
+                "type": "template",
+                "payload": {
+                    "template_type": "generic",
+                    "elements": elements
+                }
+            }
+        }
+    }
+    return fb_graph_post("/me/messages", payload)
 
 
 def fb_format_reply(res):
@@ -3535,15 +3616,28 @@ def fb_handle_event(ev):
             convo = list(hist)
         omni_res = api_omni_process_message("facebook", psid, "Facebook Customer", text)
         reply = omni_res.get("reply")
+        books = omni_res.get("books") or []
         if reply:
             with _fb_lock:
                 hist.append({"role": "assistant", "content": reply[:500]})
                 del hist[:-6]
             fb_send(psid, reply)
-            for c in (omni_res.get("covers") or [])[:FB_IMAGE_MAX]:
-                fpath = COVERS_DIR / c["file"]
-                if fpath.is_file():
-                    fb_send_image(psid, fpath)
+
+            # ถ้ามีรายการหนังสือ ให้ส่งเป็นการ์ด Generic Template Carousel ให้ลูกค้าเลื่อนดู
+            cards_sent = False
+            if books:
+                try:
+                    fb_send_book_cards(psid, books)
+                    cards_sent = True
+                except Exception as card_err:
+                    print(f"fb_send_book_cards error: {card_err}", file=sys.stderr, flush=True)
+
+            # ถ้าไม่ได้ส่งการ์ด ให้ส่งรูปแยกตามปกติ
+            if not cards_sent:
+                for c in (omni_res.get("covers") or [])[:FB_IMAGE_MAX]:
+                    fpath = COVERS_DIR / c["file"]
+                    if fpath.is_file():
+                        fb_send_image(psid, fpath)
     except Exception as exc:
         print("messenger error:", exc, file=sys.stderr, flush=True)
         try:
@@ -3868,6 +3962,16 @@ class Handler(BaseHTTPRequestHandler):
             cids = [int(x) for x in (query.get("copy_ids") or "").split(",") if x.isdigit()]
             return self._send(200, api_cart_quote({"copy_ids": cids}))
 
+        if path.startswith("/api/cover/"):
+            # รูปปกสาธารณะ — ให้ Meta/CDN และลูกค้าดูรูปปกได้โดยไม่ต้องล็อกอิน
+            fname = path.rsplit("/", 1)[-1]
+            if not re.fullmatch(r"\d+(_\d+)?\.jpg", fname):
+                return self._send(400, {"error": "รหัสรูปไม่ถูกต้อง"})
+            fpath = COVERS_DIR / fname
+            if not fpath.is_file():
+                return self._send(404, {"error": "ไม่มีรูปปก"})
+            return self._send(200, fpath.read_bytes(), "image/jpeg")
+
         # ยังไม่ล็อกอิน: หน้าแรกส่งหน้าล็อกอินให้ (URL เดิม ไม่ต้อง redirect
         # เพราะแอปอยู่ใต้ path /bookstore-demo/ ของ nginx — redirect จะพาไปผิดที่)
         user, role = self._session()
@@ -3885,15 +3989,6 @@ class Handler(BaseHTTPRequestHandler):
             # ไลบรารีอ่านบาร์โค้ดจากกล้อง — เสิร์ฟจากเครื่องเราเอง ไม่พึ่ง CDN ภายนอก
             return self._send(200, (BASE / "zxing.min.js").read_bytes(),
                               "application/javascript; charset=utf-8")
-        if path.startswith("/api/cover/"):
-            # รูปปกต้องให้บัญชีลูกค้าดูได้ด้วย (โชว์ในแชท) จึงเสิร์ฟก่อนเช็คสิทธิ์ด้านล่าง
-            fname = path.rsplit("/", 1)[-1]
-            if not re.fullmatch(r"\d+(_\d+)?\.jpg", fname):
-                return self._send(400, {"error": "รหัสรูปไม่ถูกต้อง"})
-            fpath = COVERS_DIR / fname
-            if not fpath.is_file():
-                return self._send(404, {"error": "ไม่มีรูปปก"})
-            return self._send(200, fpath.read_bytes(), "image/jpeg")
 
         # ลูกค้าต้องดูสถานะการจ่ายเงินและ QR ของตัวเองได้ จึงเสิร์ฟก่อนเช็คสิทธิ์ด้านล่าง
         # (อ้างอิงด้วยรหัส ref ที่สุ่มมา เดาไม่ได้ จึงไม่เห็นรายการของคนอื่น)

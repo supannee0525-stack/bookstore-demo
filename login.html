@@ -343,8 +343,11 @@ button.btn-submit:disabled{opacity:.5;cursor:not-allowed}
   // ตรวจจับบทบาทเริ่มต้นจาก URL เช่น ?role=customer หรือ pathname
   const params = new URLSearchParams(location.search);
   const path = location.pathname.toLowerCase();
-  if (params.get('role') === 'customer' || path.endsWith('/customer')) {
+  if (params.get('role') === 'customer' || path.endsWith('/customer') || params.get('buy_copy') || params.get('tab')) {
     setRole('customer', false);
+    if (params.get('buy_copy')) {
+      setTimeout(() => btnCustomerInstant.click(), 250);
+    }
   } else {
     setRole('staff', false);
   }
@@ -352,7 +355,7 @@ button.btn-submit:disabled{opacity:.5;cursor:not-allowed}
   const toHome = () => {
     let p = location.pathname.replace(/(staff|customer|login)\/?$/, '');
     if (!p.endsWith('/')) p += '/';
-    location.href = p || './';
+    location.href = (p || './') + (location.search || '');
   };
 
   // ล็อกอินพนักงาน

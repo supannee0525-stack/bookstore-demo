@@ -5264,6 +5264,32 @@ $('btn-sim-send')?.addEventListener('click', async () => {
 refreshOmniBadge();
 setInterval(refreshOmniBadge, 30000);
 
+// ตรวจจับ URL query params เช่น ?tab=... หรือ ?buy_copy=... จาก Facebook Messenger
+(function handleUrlParams() {
+  const urlParams = new URLSearchParams(location.search);
+  const initTab = urlParams.get('tab');
+  if (initTab) {
+    if (initTab === 'chat') switchTab('search');
+    else switchTab(initTab);
+  }
+  const buyCopyId = urlParams.get('buy_copy');
+  if (buyCopyId && typeof openOrderModal === 'function') {
+    get('cart/quote?copy_ids=' + encodeURIComponent(buyCopyId)).then(q => {
+      if (q && q.items && q.items.length) {
+        const it = q.items[0];
+        openOrderModal({
+          dataset: {
+            order: it.copy_id,
+            title: it.title,
+            grade: it.grade,
+            price: it.price
+          }
+        });
+      }
+    }).catch(() => {});
+  }
+})();
+
 </script>
 </body>
 </html>
