@@ -4911,6 +4911,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, api_cart_checkout(p, user))
         if path == "/api/order":
             return self._send(200, api_order(p))
+        if path == "/api/payment-create":
+            return self._send(200, api_payment_create(p.get("order_id")))
+        if path == "/api/payment-confirm":
+            if not PAYMENT_DEMO:
+                return self._send(403, {"error": "ปิดการยืนยันเองในโหมดใช้งานจริง"})
+            return self._send(200, api_payment_confirm(p.get("ref")))
         if path == "/api/buyback/estimate":
             return self._send(200, api_buyback_estimate(p))
         if path == "/api/buyback/create":
