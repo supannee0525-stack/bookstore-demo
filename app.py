@@ -3326,6 +3326,12 @@ def api_order_receipt_html(val):
     .receipt-meta {{ text-align: left; border-top: 1px dashed #cbd5e1; padding-top: 10px; }}
     .receipt-no {{ font-size: 16px; }}
     .grid-info {{ grid-template-columns: 1fr; gap: 12px; margin-bottom: 16px; }}
+    .table-wrap {{ border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; overflow-x: auto; }}
+    .table-items {{ min-width: 100%; font-size: 12px; }}
+    .table-items th, .table-items td {{ padding: 8px 4px; }}
+    .table-items th:first-child, .table-items td:first-child {{ width: 22px; text-align: center; }}
+    .table-items th:nth-child(3), .table-items td:nth-child(3) {{ width: 52px; text-align: center; }}
+    .table-items th:last-child, .table-items td:last-child {{ width: 64px; text-align: right; }}
     .summary-wrap {{ flex-direction: column-reverse; align-items: stretch; gap: 16px; margin-bottom: 18px; }}
     .totals-table {{ width: 100%; }}
     .totals-table tr.total-row td {{ font-size: 16px; }}
