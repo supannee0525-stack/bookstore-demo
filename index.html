@@ -1944,7 +1944,7 @@ body.is-customer #customer-nav { display: flex !important; }
 
         <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
           <button class="btn ghost sm" id="btn-bscan" style="font-size:0.76rem">📷 สแกนสติกเกอร์ร้าน (BK-xxxxxx)</button>
-          <span class="hint" style="margin:0">หรือระบบคำนวณอัตโนมัติหัก 30%</span>
+          <span class="hint" id="b-lookup-msg" style="margin:0">หรือระบบคำนวณอัตโนมัติหัก 30%</span>
         </div>
         <div id="bscanner" hidden class="scanner" style="margin-top:8px">
           <video id="bscan-video" playsinline muted></video>
@@ -2936,9 +2936,11 @@ let grade = 'B', foundTitleId = null;
 const FACTOR = {A: 0.50, B: 0.35, C: 0.20};
 
 function bindGrades(containerId, onPick) {
-  $(containerId).querySelectorAll('button').forEach(b => {
+  const el = $(containerId);
+  if (!el) return;
+  el.querySelectorAll('button').forEach(b => {
     b.addEventListener('click', () => {
-      $(containerId).querySelectorAll('button').forEach(x =>
+      el.querySelectorAll('button').forEach(x =>
         x.setAttribute('aria-pressed', String(x === b)));
       onPick(b.dataset.g);
     });
@@ -3079,13 +3081,13 @@ let scanBoxId = null;   // กล่องกล้องที่เปิด�
 // ใช้ร่วมกันทั้ง 2 แท็บ — ต่างกันแค่รูปแบบรหัสที่ยอมรับกับสิ่งที่ทำเมื่ออ่านได้
 async function startScan({boxId, videoId, btnId, msgId, accept, onCode, hint}) {
   const msg = $(msgId);
-  $(btnId).disabled = true;
-  msg.innerHTML = '<span class="spin"></span> กำลังเปิดกล้อง...';
+  if ($(btnId)) $(btnId).disabled = true;
+  if (msg) msg.innerHTML = '<span class="spin"></span> กำลังเปิดกล้อง...';
   try {
     await loadZxing();
     const { BrowserMultiFormatReader } = window.ZXingBrowser;
     zxingReader = new BrowserMultiFormatReader();
-    $(boxId).hidden = false;
+    if ($(boxId)) $(boxId).hidden = false;
     scanBoxId = boxId;
     zxingControls = await zxingReader.decodeFromConstraints(
       {video: {facingMode: {ideal: 'environment'}}},
@@ -3099,15 +3101,15 @@ async function startScan({boxId, videoId, btnId, msgId, accept, onCode, hint}) {
         onCode(code);
       }
     );
-    msg.textContent = hint;
+    if (msg) msg.textContent = hint;
   } catch (e) {
-    $(boxId).hidden = true;
+    if ($(boxId)) $(boxId).hidden = true;
     const why = (e && e.name === 'NotAllowedError')
       ? 'ไม่ได้รับอนุญาตให้ใช้กล้อง — กดอนุญาตในเบราว์เซอร์แล้วลองอีกครั้ง'
       : (e && e.message) || 'เปิดกล้องไม่ได้';
-    msg.innerHTML = '<span class="badge low">เปิดกล้องไม่ได้</span> ' + esc(why) + ' — พิมพ์รหัสเองได้';
+    if (msg) msg.innerHTML = '<span class="badge low">เปิดกล้องไม่ได้</span> ' + esc(why) + ' — พิมพ์รหัสเองได้';
   }
-  $(btnId).disabled = false;
+  if ($(btnId)) $(btnId).disabled = false;
 }
 
 function stopScan() {
@@ -3605,13 +3607,11 @@ $('btn-save').addEventListener('click', async () => {
   $('btn-clear-shots').click();
 });
 
-/* ---------- รับซื้อ ---------- */
-let bGrade = 'B';
-bindGrades('b-grades', g => { bGrade = g; });
 /* ---------- สติกเกอร์ติดหลังเล่ม ---------- */
 // บาร์โค้ดสร้างที่เซิร์ฟเวอร์ด้วย zint (โปรแกรมมาตรฐาน) แล้วส่งมาเป็น SVG
 // ไม่เขียนตารางเข้ารหัสเอง เพราะพลาดบิตเดียวสติกเกอร์จะสแกนไม่ติดทั้งร้าน
 function showSticker(code, title, price, shelf, grade) {
+  if (!$('sticker-wrap') || !$('sticker-box')) return;
   $('sticker-wrap').innerHTML = `
     <div class="sticker" id="sticker">
       <div class="st-title">${esc(title || '')}</div>
@@ -3632,8 +3632,10 @@ function showSticker(code, title, price, shelf, grade) {
   $('btn-print').addEventListener('click', () => {
     // ย้ายสำเนาสติกเกอร์ไปไว้ใต้ body ตรงๆ เพราะ CSS พิมพ์ซ่อนลูกของ body ทุกตัว
     // ถ้าปล่อยไว้ในหน้า มันจะถูกซ่อนไปพร้อมกับส่วนอื่น
-    $('sticker-print-host').innerHTML = $('sticker').outerHTML;
-    window.print();
+    if ($('sticker-print-host') && $('sticker')) {
+      $('sticker-print-host').innerHTML = $('sticker').outerHTML;
+      window.print();
+    }
   });
   $('btn-sticker-close').addEventListener('click', () => {
     $('sticker-box').hidden = true;
@@ -3641,89 +3643,23 @@ function showSticker(code, title, price, shelf, grade) {
   });
 }
 
-let bCode = '';   // รหัสสติกเกอร์ที่สแกนได้ ('' = เล่มจากที่อื่น คิดจากราคาปก)
-
 const SCAN_BUYBACK = {
   boxId: 'bscanner', videoId: 'bscan-video', btnId: 'btn-bscan', msgId: 'b-lookup-msg',
   accept: /^BK-\d{4,8}$/i,        // สติกเกอร์ของร้านเท่านั้น ไม่ใช่ ISBN บนปก
   hint: 'เล็งสติกเกอร์หลังเล่มให้อยู่ในกรอบ',
-  onCode: code => { $('b-code').value = code.toUpperCase(); lookupCode(); }
-};
-$('btn-bscan').addEventListener('click', () => {
-  if ($('bscanner').hidden) startScan(SCAN_BUYBACK); else stopScan();
-});
-$('btn-bscan-stop').addEventListener('click', stopScan);
-$('btn-bcode').addEventListener('click', lookupCode);
-$('b-code').addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(); });
-
-async function lookupCode() {
-  const code = $('b-code').value.trim().toUpperCase();
-  const msg = $('b-lookup-msg');
-  if (!code) { toast('ใส่รหัสสติกเกอร์ก่อน', 'error'); return; }
-  msg.innerHTML = '<span class="spin"></span> กำลังค้นหา...';
-  const r = await get('copy-lookup?code=' + encodeURIComponent(code));
-  if (!r.found) {
-    bCode = '';
-    msg.innerHTML = '<span class="badge low">ไม่พบ</span> รหัส <span class="mono">'
-      + esc(code) + '</span> ไม่ใช่สติกเกอร์ของร้านเรา — กรอกข้อมูลเองด้านล่างได้';
-    return;
+  onCode: code => {
+    if ($('bb-input-isbn')) $('bb-input-isbn').value = code.toUpperCase();
+    if ($('btn-bb-add-item')) $('btn-bb-add-item').click();
   }
-  bCode = code;
-  $('b-title').value = r.title || '';
-  $('b-author').value = r.author || '';
-  $('b-cover').value = r.cover_price || '';
-  const sold = r.was_sold
-    ? `ร้านขายไป ${baht(r.sold_price)} เมื่อ ${esc((r.sold_at || '').slice(0, 10))} (ตอนนั้นสภาพ ${esc(r.sold_grade)})`
-    : `<span class="badge medium">ยังไม่เคยขาย</span> เล่มนี้ยังอยู่ในสต็อกร้าน — เช็คให้แน่ใจก่อนรับซื้อ`;
-  msg.innerHTML = `<span class="badge high">เจอ</span> <strong>${esc(r.title)}</strong><br>${sold}`
-    + '<br>เลือกสภาพ<strong>ตอนนี้</strong>ด้านล่าง แล้วกดคำนวณ';
-}
-
-$('btn-quote').addEventListener('click', async () => {
-  const cover = parseFloat($('b-cover').value);
-  if (!bCode && !(cover > 0)) { toast('สแกนสติกเกอร์ หรือใส่ราคาปกก่อน', 'error'); return; }
-  const r = await post('buyback-quote',
-    bCode ? {code: bCode, grade: bGrade} : {cover_price: cover, grade: bGrade});
-  if (r.error) { toast(r.error, 'error'); return; }
-  const via = r.source === 'sticker'
-    ? `<span class="badge high">จากสติกเกอร์ ${esc(r.code)}</span> คิดจากราคาที่ร้านขายไป ${baht(r.sold_price)}`
-    : '<span class="badge medium">ไม่มีสติกเกอร์</span> คิดจากราคาปกกับสภาพ';
-  $('quote').innerHTML = `
-    <div class="card" style="margin-top:14px">
-      <h3>ราคาที่เสนอรับซื้อ</h3>
-      <p class="meta">${esc($('b-title').value || 'ไม่ระบุชื่อ')} · สภาพ ${esc(r.grade_label)}</p>
-      <p class="hint" style="margin:6px 0 0">${via}</p>
-      <div class="tiles" style="margin:10px 0 0">
-        <div class="tile"><p class="k">จ่ายลูกค้า</p><p class="v">${baht(r.offer)}</p></div>
-        <div class="tile"><p class="k">ตั้งขาย</p><p class="v">${baht(r.sell_price)}</p></div>
-        <div class="tile"><p class="k">กำไรถ้าขายได้</p><p class="v">${baht(r.margin)}</p></div>
-      </div>
-      <div class="field" style="margin-top:12px">
-        <label for="b-shelf">เก็บที่ชั้น</label>
-        ${shelfSelectHTML('b-shelf')}
-      </div>
-      <button class="btn" id="btn-accept" style="width:100%">รับซื้อและลงสต็อก</button>
-      <p class="hint" style="margin:10px 0 0">รับซื้อที่ ${r.rate_pct}% ของราคาตั้งขายตามสภาพ
-        (ดีมาก 45% · ดี 40% · พออ่านได้ 30%) — ปรับได้ตามนโยบายร้าน</p>
-    </div>`;
-  $('btn-accept').addEventListener('click', async () => {
-    const shelf = $('b-shelf').value;
-    if (!shelf) { toast('เลือกชั้นวางก่อน', 'error'); return; }
-    const res = await post('buyback-accept', {
-      title: $('b-title').value.trim() || 'ไม่ระบุชื่อ',
-      author: $('b-author').value.trim(), cover_price: cover || null,
-      grade: bGrade, sell_price: r.sell_price, offer: r.offer,
-      shelf: shelf.trim().toUpperCase(), from_code: bCode || null
-    });
-    if (res.error) { toast(res.error, 'error'); return; }
-    toast(`รับซื้อแล้ว จ่าย ${baht(r.offer)} · สติกเกอร์ใหม่ ${res.code}`);
-    // ต้องพิมพ์สติกเกอร์ใบใหม่ทันที เพราะรหัสเดิมผูกกับประวัติการขายรอบก่อนไปแล้ว
-    showSticker(res.code, res.title, res.sell_price, res.shelf, res.grade);
-    bCode = '';
-    ['b-title','b-author','b-cover','b-code'].forEach(i => $(i).value = '');
-    $('b-lookup-msg').textContent = '';
+};
+if ($('btn-bscan')) {
+  $('btn-bscan').addEventListener('click', () => {
+    if ($('bscanner') && $('bscanner').hidden) startScan(SCAN_BUYBACK); else stopScan();
   });
-});
+}
+if ($('btn-bscan-stop')) {
+  $('btn-bscan-stop').addEventListener('click', stopScan);
+}
 
 /* ---------- ภาพรวม ---------- */
 function statsSkeleton() {
