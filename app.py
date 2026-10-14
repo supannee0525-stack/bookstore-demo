@@ -1628,12 +1628,57 @@ FOLLOWUP_WORDS = ("สภาพ", "ปีไหน", "ปีพิมพ์", "�
 NEWSEARCH_WORDS = ("มี", "หา", "แนะนำ", "แนว", "หมวด", "อยากได้", "ขอ")
 
 
-def _match_category(text):
-    """เทียบข้อความกับหมวดหมู่ของร้านแบบยืดหยุ่น คืนชื่อหมวดที่ตรง หรือ None
+CATEGORY_SYNONYMS = {
+    "นิยาย": "นวนิยาย",
+    "อ่านเล่น": "นวนิยาย",
+    "วรรณกรรม": "วรรณกรรมไทยร่วมสมัย",
+    "เรื่องสั้น": "เรื่องสั้น",
+    "ดูดวง": "โหราศาสตร์/ดูดวง",
+    "โหราศาสตร์": "โหราศาสตร์/ดูดวง",
+    "ดวง": "โหราศาสตร์/ดูดวง",
+    "พัฒนาตนเอง": "จิตวิทยา/พัฒนาตนเอง",
+    "พัฒนาตัวเอง": "จิตวิทยา/พัฒนาตนเอง",
+    "จิตวิทยา": "จิตวิทยา/พัฒนาตนเอง",
+    "การเงิน": "ธุรกิจ/การเงิน",
+    "ธุรกิจ": "ธุรกิจ/การเงิน",
+    "ชีวประวัติ": "ชีวประวัติ",
+    "ประวัติศาสตร์": "ประวัติศาสตร์",
+    "การ์ตูน": "การ์ตูน",
+    "มังงะ": "การ์ตูน",
+    "ธรรมะ": "ธรรมะ/ศาสนา",
+    "ปรัชญา": "ปรัชญา",
+}
 
-    ลูกค้าพิมพ์ 'หนังสือธุรกิจการเงิน' แต่ในฐานข้อมูลเก็บว่า 'ธุรกิจ/การเงิน'
-    ค้นด้วย LIKE ตรงๆ จะไม่เจอเพราะมีขีดคั่น จึงต้องตัดขีดกับช่องว่างออกก่อนเทียบ
-    """
+
+def _get_featured_books(limit=6):
+    conn = db()
+    rows = conn.execute("""
+        SELECT DISTINCT t.*
+        FROM titles t
+        JOIN copies c ON c.title_id = t.id
+        WHERE c.status = 'in_stock'
+        ORDER BY t.id DESC LIMIT ?
+    """, (limit,)).fetchall()
+    out = []
+    for t in rows:
+        copies = conn.execute(
+            "SELECT * FROM copies WHERE title_id=? AND status='in_stock' ORDER BY grade ASC",
+            (t["id"],)
+        ).fetchall()
+        out.append({**dict(t), "copies": [dict(c) for c in copies]})
+    conn.close()
+    return out
+
+
+def _match_category(text):
+    """เทียบข้อความกับหมวดหมู่ของร้านแบบยืดหยุ่น คืนชื่อหมวดที่ตรง หรือ None"""
+    if not text:
+        return None
+    raw = text.lower()
+    for kw, target_cat in CATEGORY_SYNONYMS.items():
+        if kw in raw:
+            return target_cat
+
     norm = lambda s: re.sub(r"[\s/]", "", s or "")
     t = norm(text)
     if len(t) < 3:
@@ -1646,7 +1691,7 @@ def _match_category(text):
     # เทียบทีละส่วนของหมวดที่มีขีดคั่น เช่น 'ธุรกิจ/การเงิน' -> 'ธุรกิจ' หรือ 'การเงิน'
     for cat in CATEGORIES:
         for part in cat.split("/"):
-            if len(part) >= 4 and norm(part) in t:
+            if len(part) >= 3 and norm(part) in t:
                 return cat
     return None
 
@@ -1746,6 +1791,23 @@ def api_chat(history, mode="staff", channel=None):
 
     query = user_msg
     if not titles:
+        BROAD_BROWSING_WORDS = (
+            "มีหนังสืออะไรบ้าง", "มีอะไรบ้าง", "มีหนังสือแนวไหนบ้าง", "มีแนวไหนบ้าง",
+            "มีหมวดไหนบ้าง", "แนะนำหนังสือ", "แนะนำหน่อย", "มีหนังสือแนะนำไหม",
+            "ร้านมีหนังสืออะไร", "มีเล่มไหนบ้าง", "หนังสืออะไรน่าอ่าน", "มีหนังสือไรบ้าง",
+            "มีหนังสือประเภทไหน", "ขายหนังสืออะไรบ้าง", "มีอะไรขายบ้าง"
+        )
+        is_broad = any(w in user_msg.lower().replace(" ", "") for w in BROAD_BROWSING_WORDS)
+        if is_broad:
+            titles = _get_featured_books(6)
+            compact = _compact_titles(titles, mode)
+
+    if not titles:
+        cat = _match_category(user_msg)
+        if cat:
+            titles, compact = _tool_search_books(cat, mode)
+
+    if not titles:
         query = _extract_query(user_msg, history)
         titles, compact = _tool_search_books(query, mode)
 
@@ -1804,7 +1866,7 @@ def api_chat(history, mode="staff", channel=None):
                     + json.dumps(compact, ensure_ascii=False)),
     })
     # แชทเพจไม่มีการ์ด/ปุ่ม — ทดสอบจริงแล้วโมเดลบอกลูกค้าให้ "กดปุ่มที่การ์ด" ซึ่งไม่มีอยู่
-    if channel == "messenger":
+    if channel in ("messenger", "facebook", "instagram", "line", "tiktok"):
         convo.append({"role": "system", "content": FB_CHANNEL_NOTE})
 
     # โหมดลูกค้าไม่มีการ์ด จึงแนบลิงก์รีวิวเป็นลิงก์ในแชท และตัดสินด้วยโค้ด ไม่ให้โมเดลแต่ง URL เอง
@@ -1850,10 +1912,10 @@ def api_chat(history, mode="staff", channel=None):
     reply = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", reply)
     # สกัดลิงก์สั่งซื้อทันที (Instant Order Link) สำหรับเล่มที่มีสต็อกพร้อมส่ง
     order_links = []
-    if is_customer and books:
+    if is_customer and books and compact and compact.get("found", 0) > 0:
         for b in books:
             copies = b.get("copies") or []
-            in_stock = [c for c in copies if c.get("status") == "in_stock" or "shelf" in c]
+            in_stock = [c for c in copies if c.get("status") == "in_stock"]
             if in_stock:
                 cid = in_stock[0].get("id")
                 order_links.append({
@@ -1862,7 +1924,7 @@ def api_chat(history, mode="staff", channel=None):
                     "price": in_stock[0].get("price"),
                     "url": f"https://ai4you.click/bookstore-demo/?buy_copy={cid}"
                 })
-    if order_links and channel:
+    if order_links and channel and len(compact.get("books", [])) > 0:
         reply += f"\n\n🛒 สั่งซื้อทันที: {order_links[0]['url']} (ชำระผ่าน QR PromptPay หรือบัตรเครดิต)"
 
     return {"reply": reply,
